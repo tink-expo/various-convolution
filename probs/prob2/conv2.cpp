@@ -23,13 +23,11 @@ struct Tensor {
     }
 };
 
-// Only float.
-template <typename T>
-void writeFile(const string& fname, Tensor<T>& tensor)
+void writeFile(const char* fname, const Tensor<float>& tensor)
 {
     ofstream ofs(fname, ios::binary);
-    ofs.write((char*) const_cast<int*>(tensor.dim.data()), 16);
-    ofs.write((char*) tensor.valPtr(),
+    ofs.write((const char*) (tensor.dim.data()), 16);
+    ofs.write((const char*) tensor.val.data(),
             sizeof(float) * tensor.val.size());
 }
 
@@ -74,7 +72,7 @@ float getMaxAbs(const Tensor<float>& tensor)
 }
 
 template<typename T>
-T getS(const Tensor<float>& in_tensor, const Tensor<float>& ker_tensor)
+T getSS(const Tensor<float>& in_tensor, const Tensor<float>& ker_tensor)
 {
     float in_max = getMaxAbs(in_tensor);
     float ker_max = getMaxAbs(ker_tensor);
@@ -102,6 +100,12 @@ T getS(const Tensor<float>& in_tensor, const Tensor<float>& ker_tensor)
     return (T) s_max;
 }
 
+template<typename T>
+float getS()
+{
+    return 1000.0f;
+}
+
 void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int* pad_back)
 {
     int stride_size = 1;
@@ -115,52 +119,83 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
 
 // in_tensor always float
 template<typename T>
-void getQuantized(int precision, Tensor<T>& in_tensor, Tensor<T>& quan_in_tensor)
+Tensor<T> getQuantized(float s_val, Tensor<float>& in_tensor)
 {
     float min_val = (float) numeric_limits<T>::min();
     float max_val = (float) numeric_limits<T>::max();
     
-    int s_val = (int) pow(10, precision);
-    
+    Tensor<T> quan_in_tensor;
     quan_in_tensor.dim = in_tensor.dim;
     quan_in_tensor.val.assign(in_tensor.val.size(), 0);
     for (size_t i = 0; i < in_tensor.val.size(); ++i) {
-        quan_in_tensor.val[i] = (T) min(max_val, max(min_val, (float) in_tensor.val[i] * s_val));
+        quan_in_tensor.val[i] = (T) min(max_val, max(min_val, in_tensor.val[i] * s_val));
     }
+    return quan_in_tensor;
 }
 
 template<typename T>
-void getDequantized(int precision, Tensor<T>& quan_out_tensor, Tensor<T>& fin_out_tensor)
+Tensor<float> getDequantized(float s_val, Tensor<T>& quan_out_tensor)
 {
-    float s_val_sq = (float) pow(10, precision);
-    s_val_sq = s_val_sq * s_val_sq;
+    float s_val_sq = s_val * s_val;
     
+    Tensor<float> fin_out_tensor;
     fin_out_tensor.dim = quan_out_tensor.dim;
     fin_out_tensor.val.assign(quan_out_tensor.val.size(), 0);
     for (size_t i = 0; i < quan_out_tensor.val.size(); ++i) {
         fin_out_tensor.val[i] = (float) quan_out_tensor.val[i] / s_val_sq;
     }
+    return fin_out_tensor;
 }
 
-// Only float.
-template <typename T> 
-void getPadded(
+template<typename T>
+void doConv2D(
+        int batch, int ih, int iw, int ic, 
+        int kh, int kw, int od,
+        int oh, int ow,
+        Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
+{
+    T (*padded_arr)[ih][iw][ic] = (T (*)[ih][iw][ic]) padded_tensor.valPtr();
+    T (*ker_arr)[kw][od][ic] = (T (*)[kw][od][ic]) ker_tensor.valPtr();
+    T (*out_arr)[oh][ow][od] = (T (*)[oh][ow][od]) out_tensor.valPtr();
+
+    clock_t start_c = clock();
+    for (int b = 0; b < batch; ++b) {
+        for (int d = 0; d < od; ++d) {
+            for (int i = 0; i < oh; ++i) {
+                for (int j = 0; j < ow; ++j) {
+                    for (int c = 0; c < ic; ++c) {
+                        for (int di = 0; di < kh; ++di) {
+                            for (int dj = 0; dj < kw; ++dj) {
+                                out_arr[b][i][j][d] +=
+                                        padded_arr[b][i + di][j + dj][c]
+                                        * ker_arr[di][dj][d][c];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+}
+
+Tensor<float> getPadded(
         int ih, int pad_top,
         int iw, int pad_left,
-        Tensor<float>& in_tensor,
-        Tensor<T>& padded_tensor)
+        Tensor<float>& in_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
     int np_iw = in_tensor.dim[2];
     int ic = in_tensor.dim[3];
     
+    Tensor<float> padded_tensor;
     padded_tensor.dim = in_tensor.dim;
     padded_tensor.dim[1] = ih;
     padded_tensor.dim[2] = iw;
     padded_tensor.val.assign(batch * ih * iw * ic, 0);
 
-    T (*padded_val_arr)[ih][iw][ic] = (T (*)[ih][iw][ic]) padded_tensor.valPtr();
+    float (*padded_val_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) padded_tensor.valPtr();
     float (*val_arr)[np_ih][np_iw][ic] = (float (*)[np_ih][np_iw][ic]) in_tensor.valPtr();
 
     for (int b = 0; b < batch; ++b) {
@@ -173,10 +208,10 @@ void getPadded(
             }
         }
     }
+    return padded_tensor;
 }
 
-template <typename T>
-clock_t conv2D(int precision, Tensor<float>& in_tensor, Tensor<float>& ker_tensor, Tensor<T>& out_tensor)
+Tensor<float> conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
@@ -200,77 +235,86 @@ clock_t conv2D(int precision, Tensor<float>& in_tensor, Tensor<float>& ker_tenso
     int ih = np_ih + pad_top + pad_bottom;
     int iw = np_iw + pad_left + pad_right;
 
-    Tensor<T> padded_tensor;
-    if (precision) {
-        Tensor<T> unquan_padded_tensor;
-        getPadded<T>(
-                ih, pad_top,
-                iw, pad_left,
-                in_tensor,
-                unquan_padded_tensor);
-        getQuantized<T>(precision, unquan_padded_tensor, padded_tensor);
-        
-    } else {
-        getPadded<T>(
-                ih, pad_top,
-                iw, pad_left,
-                in_tensor,
-                padded_tensor);
-    }
-
+    Tensor<float> out_tensor;
     out_tensor.dim[0] = batch;
     out_tensor.dim[1] = oh;
     out_tensor.dim[2] = ow;
     out_tensor.dim[3] = od;
     out_tensor.val.assign(batch * oh * ow * od, 0);
 
-    T (*padded_arr)[ih][iw][ic] = (T (*)[ih][iw][ic]) padded_tensor.valPtr();
-    T (*ker_arr)[kw][od][ic] = (T (*)[kw][od][ic])ker_tensor.valPtr();
-    T (*out_arr)[oh][ow][od] = (T (*)[oh][ow][od])out_tensor.valPtr();
+    Tensor<float> padded_tensor = getPadded(
+            ih, pad_top,
+            iw, pad_left,
+            in_tensor);
+    
+    doConv2D<float>(
+            batch, ih, iw, ic, kh, kw, od, oh, ow,
+            padded_tensor, ker_tensor, out_tensor);
+    return out_tensor;
+}
 
-    clock_t start_c = clock();
-    for (int b = 0; b < batch; ++b) {
-        for (int d = 0; d < od; ++d) {
-            for (int i = 0; i < oh; ++i) {
-                for (int j = 0; j < ow; ++j) {
-                    for (int c = 0; c < ic; ++c) {
-                        for (int di = 0; di < kh; ++di) {
-                            for (int dj = 0; dj < kw; ++dj) {
-                                out_arr[b][i][j][d] +=
-                                        padded_arr[b][i + di][j + dj][c]
-                                        * ker_arr[di][dj][d][c];
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    clock_t elasped_c = clock() - start_c;
-    return elasped_c;
+template <typename T>
+Tensor<float> quanConv2D(float s_val, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+{
+    int batch = in_tensor.dim[0];
+    int np_ih = in_tensor.dim[1];
+    int np_iw = in_tensor.dim[2];
+    int ic = in_tensor.dim[3];
+
+    int kh = ker_tensor.dim[0];
+    int kw = ker_tensor.dim[1];
+    int od = ker_tensor.dim[2];
+    
+    int oh;
+    int pad_top;
+    int pad_bottom;
+    getOutPads1D(np_ih, kh, &oh, &pad_top, &pad_bottom);
+
+    int ow;
+    int pad_left;
+    int pad_right;
+    getOutPads1D(np_iw, kw, &ow, &pad_left, &pad_right);
+
+    int ih = np_ih + pad_top + pad_bottom;
+    int iw = np_iw + pad_left + pad_right;
+
+    Tensor<float> unquan_padded_tensor = getPadded(
+            ih, pad_top,
+            iw, pad_left,
+            in_tensor);
+    Tensor<T> padded_tensor = getQuantized<T>(s_val, unquan_padded_tensor);
+    Tensor<T> quan_ker_tensor = getQuantized<T>(s_val, ker_tensor);
+
+    Tensor<T> out_tensor;
+    out_tensor.dim[0] = batch;
+    out_tensor.dim[1] = oh;
+    out_tensor.dim[2] = ow;
+    out_tensor.dim[3] = od;
+    out_tensor.val.assign(batch * oh * ow * od, 0);
+
+    doConv2D<T>(
+            batch, ih, iw, ic, kh, kw, od, oh, ow,
+            padded_tensor, quan_ker_tensor, out_tensor);
+
+    return getDequantized(s_val, out_tensor);
 }
 
 template<typename T>
-bool conv2DWrapper(int precision, const string& in_fname, const string& ker_fname)
+bool conv2DWrapper(bool quant, const string& in_fname, const string& ker_fname)
 {
     Tensor<float> in_tensor;
     Tensor<float> ker_tensor;
-    Tensor<T> out_tensor;
 
     if (!readFile(in_fname, in_tensor) || !readFile(ker_fname, ker_tensor)) {
         return false;
     }
 
-    clock_t elasped = conv2D<T>(precision, in_tensor, ker_tensor, out_tensor);
-    cout << (double) elasped / CLOCKS_PER_SEC << endl;
-
     constexpr char out_fname[] = "output_tensor.bin";
-    if (precision) {
-        Tensor<T> fin_out_tensor;
-        getDequantized(precision, out_tensor, fin_out_tensor);
-        writeFile<T>(out_fname, fin_out_tensor);
+    if (quant) {
+        float s_val = getS<T>();
+        writeFile(out_fname, quanConv2D<T>(s_val, in_tensor, ker_tensor));
     } else {
-        writeFile<T>(out_fname, out_tensor);
+        writeFile(out_fname, conv2D(in_tensor, ker_tensor));
     }
     return true;
 }
