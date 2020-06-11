@@ -53,11 +53,12 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
             (*out_size - 1) * stride_size + ker_size - in_size,
             0);
     *pad_front = pad_size / 2;
-    *pad_back = *out_size - *pad_front;
+    *pad_back = pad_size - *pad_front;
 }
 
-Tensor getPadded(int pad_top, int pad_bottom, 
-        int pad_left, int pad_right, 
+vector<T> getPadded(
+        int ih, int pad_top,
+        int iw, int pad_left,
         Tensor& in_tensor)
 {
     int batch = in_tensor.dim[0];
@@ -65,43 +66,38 @@ Tensor getPadded(int pad_top, int pad_bottom,
     int np_iw = in_tensor.dim[2];
     int ic = in_tensor.dim[3];
 
-    int ih = np_ih + pad_top + pad_bottom;
-    int iw = np_iw + pad_left + pad_right;
+    vector<T> padded_val(batch * ih * iw * ic, 0);
 
-    Tensor padded_tensor;
-    padded_tensor.dim[0] = batch;
-    padded_tensor.dim[1] = ih;
-    padded_tensor.dim[2] = iw;
-    padded_tensor.dim[3] = ic;
-    padded_tensor.val.assign(batch * ih * iw * ic, 0);
-
-    float (*val_padded_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) padded_tensor.valPtr();
+    T (*padded_val_arr)[ih][iw][ic] = (T (*)[ih][iw][ic]) const_cast<T*>(padded_val.data());
     float (*val_arr)[np_ih][np_iw][ic] = (float (*)[np_ih][np_iw][ic]) in_tensor.valPtr();
 
     for (int b = 0; b < batch; ++b) {
         for (int i = 0; i < np_ih; ++i) {
             for (int j = 0; j < np_iw; ++j) {
                 for (int c = 0; c < ic; ++c) {
-                    val_padded_arr[b][i + pad_top][j + pad_left][c] =
+                    padded_val_arr[b][i + pad_top][j + pad_left][c] =
                             val_arr[b][i][j][c];
                 }
             }
         }
     }
-    return padded_tensor;
+
+    return padded_val;
 }
 
 clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
 {
+    int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
     int np_iw = in_tensor.dim[2];
+    int ic = in_tensor.dim[3];
 
     int kh = ker_tensor.dim[0];
     int kw = ker_tensor.dim[1];
     int od = ker_tensor.dim[2];
     
     int oh;
-    int pad_top; 
+    int pad_top;
     int pad_bottom;
     getOutPads1D(np_ih, kh, &oh, &pad_top, &pad_bottom);
 
@@ -110,15 +106,12 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
     int pad_right;
     getOutPads1D(np_iw, kw, &ow, &pad_left, &pad_right);
 
-    Tensor padded_in_tensor = getPadded(
-            pad_top, pad_bottom,
-            pad_left, pad_right,
+    int ih = np_ih + pad_top + pad_bottom;
+    int iw = np_iw + pad_left + pad_right;
+    vector<float> padded_val = getPadded(
+            ih, pad_top,
+            iw, pad_left,
             in_tensor);
-
-    int batch = padded_in_tensor.dim[0];
-    int ih = padded_in_tensor.dim[1];
-    int iw = padded_in_tensor.dim[2];
-    int ic = padded_in_tensor.dim[3];
 
     out_tensor.dim[0] = batch;
     out_tensor.dim[1] = oh;
@@ -126,7 +119,7 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
     out_tensor.dim[3] = od;
     out_tensor.val.assign(batch * oh * ow * od, 0);
 
-    float (*padded_in_arr)[ih][iw][ic] = (float (*)[ih][iw][ic])(padded_in_tensor.valPtr());
+    float (*padded_in_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) const_cast<float*>(padded_val.data());
     float (*ker_arr)[kw][od][ic] = (float (*)[kw][od][ic])(ker_tensor.valPtr());
     float (*out_arr)[oh][ow][od] = (float (*)[oh][ow][od])(out_tensor.valPtr());
 
