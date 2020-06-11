@@ -131,9 +131,9 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
     clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
         for (int d = 0; d < od; ++d) {
-            for (int c = 0; c < ic; ++c) {
-                for (int i = 0; i < oh; ++i) {
-                    for (int j = 0; j < ow; ++j) {
+            for (int i = 0; i < oh; ++i) {
+                for (int j = 0; j < ow; ++j) {
+                    for (int c = 0; c < ic; ++c) {
                         for (int di = 0; di < kh; ++di) {
                             for (int dj = 0; dj < kw; ++dj) {
                                 out_arr[b][i][j][d] +=
@@ -157,8 +157,8 @@ int main(int argc, char* argv[])
     Tensor ker_tensor;
     Tensor out_tensor;
 
-    if (!readFile(string(argv[1]), in_tensor) || !readFile(string(argv[2]), ker_tensor)) {
-        cout << "File open failed." << endl;
+    if (argc < 3 || !readFile(string(argv[1]), in_tensor) || !readFile(string(argv[2]), ker_tensor)) {
+        cout << "Invalid args." << endl;
         return 0;
     }
 
