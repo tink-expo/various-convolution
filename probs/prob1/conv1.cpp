@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cassert>
 #include <algorithm>
+#include <ctime>
 
 using namespace std;
 
@@ -84,15 +85,15 @@ void doPad(int pad_top, int pad_bottom,
     in_tensor.val = val_padded;
 }
 
-void conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
+clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
 {
     int np_ih = in_tensor.dim[1];
     int np_iw = in_tensor.dim[2];
 
     int kh = ker_tensor.dim[0];
     int kw = ker_tensor.dim[1];
-    int od = ker_tensor.dim[3];
-
+    int od = ker_tensor.dim[2];
+    
     int oh;
     int pad_top; 
     int pad_bottom;
@@ -118,11 +119,11 @@ void conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
     out_tensor.dim[3] = od;
     out_tensor.val = (float*) calloc(batch * oh * ow * od, sizeof(float));
 
-    cout << oh << " " << ow << " " << od << endl;
-
     float (*in_arr)[ih][iw][ic] = (float (*)[ih][iw][ic])(in_tensor.val);
-    float (*ker_arr)[kw][ic][od] = (float (*)[kw][ic][od])(ker_tensor.val);
+    float (*ker_arr)[kw][od][ic] = (float (*)[kw][od][ic])(ker_tensor.val);
     float (*out_arr)[oh][ow][od] = (float (*)[oh][ow][od])(out_tensor.val);
+
+    clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
         for (int d = 0; d < od; ++d) {
             for (int c = 0; c < ic; ++c) {
@@ -132,7 +133,7 @@ void conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
                             for (int dj = 0; dj < kw; ++dj) {
                                 out_arr[b][i][j][d] +=
                                         in_arr[b][i + di][j + dj][c] * 
-                                        ker_arr[di][dj][c][d];
+                                        ker_arr[di][dj][d][c];
                             }
                         }
                     }
@@ -140,6 +141,8 @@ void conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
             }
         }
     }
+    clock_t elasped_c = clock() - start_c;
+    return elasped_c;
 }
 
 
@@ -154,7 +157,8 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    conv2D(in_tensor, ker_tensor, out_tensor);
+    clock_t elasped = conv2D(in_tensor, ker_tensor, out_tensor);
+    cout << (double) elasped / CLOCKS_PER_SEC << endl;
     writeFile("out_tensor.bin", out_tensor);
 
     free(in_tensor.val);
