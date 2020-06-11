@@ -12,15 +12,20 @@ using namespace std;
 
 struct Tensor {
     int dim[4];
-    float* val;
+    vector<float> val;
+
+    inline float* valPtr()
+    {
+        return const_cast<float*>(val.data());
+    }
 };
 
 void writeFile(const string& fname, Tensor& tensor)
 {
     ofstream ofs(fname, ios::binary);
     ofs.write((char*) tensor.dim, 16);
-    ofs.write((char*) tensor.val, 
-            sizeof(float) * tensor.dim[0] * tensor.dim[1] * tensor.dim[2] * tensor.dim[3]);
+    ofs.write((char*) tensor.valPtr(),
+            sizeof(float) * tensor.val.size());
 }
 
 bool readFile(const string& fname, Tensor& tensor)
@@ -35,8 +40,8 @@ bool readFile(const string& fname, Tensor& tensor)
     ifs.seekg(0, ios::beg);
     
     ifs.read((char*) tensor.dim, 16);
-    tensor.val = (float*) calloc(fsize - 16, sizeof(float));
-    ifs.read((char*) tensor.val, fsize - 16);
+    tensor.val.assign((fsize - 16) / sizeof(float), 0);
+    ifs.read((char*) tensor.valPtr(), fsize - 16);
     return true;
 }
 
@@ -51,7 +56,7 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
     *pad_back = *out_size - *pad_front;
 }
 
-void doPad(int pad_top, int pad_bottom, 
+Tensor getPadded(int pad_top, int pad_bottom, 
         int pad_left, int pad_right, 
         Tensor& in_tensor)
 {
@@ -63,13 +68,15 @@ void doPad(int pad_top, int pad_bottom,
     int ih = np_ih + pad_top + pad_bottom;
     int iw = np_iw + pad_left + pad_right;
 
-    in_tensor.dim[1] = ih;
-    in_tensor.dim[2] = iw;
+    Tensor padded_tensor;
+    padded_tensor.dim[0] = batch;
+    padded_tensor.dim[1] = ih;
+    padded_tensor.dim[2] = iw;
+    padded_tensor.dim[3] = ic;
+    padded_tensor.val.assign(batch * ih * iw * ic, 0);
 
-    float* val_padded = (float*) calloc(batch * ih * iw * ic, sizeof(float));
-
-    float (*val_padded_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) val_padded;
-    float (*val_arr)[np_ih][np_iw][ic] = (float (*)[np_ih][np_iw][ic]) in_tensor.val;
+    float (*val_padded_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) padded_tensor.valPtr();
+    float (*val_arr)[np_ih][np_iw][ic] = (float (*)[np_ih][np_iw][ic]) in_tensor.valPtr();
 
     for (int b = 0; b < batch; ++b) {
         for (int i = 0; i < np_ih; ++i) {
@@ -81,8 +88,7 @@ void doPad(int pad_top, int pad_bottom,
             }
         }
     }
-    free(in_tensor.val);
-    in_tensor.val = val_padded;
+    return padded_tensor;
 }
 
 clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
@@ -104,24 +110,25 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
     int pad_right;
     getOutPads1D(np_iw, kw, &ow, &pad_left, &pad_right);
 
-    doPad(pad_top, pad_bottom,
+    Tensor padded_in_tensor = getPadded(
+            pad_top, pad_bottom,
             pad_left, pad_right,
             in_tensor);
 
-    int batch = in_tensor.dim[0];
-    int ih = in_tensor.dim[1];
-    int iw = in_tensor.dim[2];
-    int ic = in_tensor.dim[3];
+    int batch = padded_in_tensor.dim[0];
+    int ih = padded_in_tensor.dim[1];
+    int iw = padded_in_tensor.dim[2];
+    int ic = padded_in_tensor.dim[3];
 
     out_tensor.dim[0] = batch;
     out_tensor.dim[1] = oh;
     out_tensor.dim[2] = ow;
     out_tensor.dim[3] = od;
-    out_tensor.val = (float*) calloc(batch * oh * ow * od, sizeof(float));
+    out_tensor.val.assign(batch * oh * ow * od, 0);
 
-    float (*in_arr)[ih][iw][ic] = (float (*)[ih][iw][ic])(in_tensor.val);
-    float (*ker_arr)[kw][od][ic] = (float (*)[kw][od][ic])(ker_tensor.val);
-    float (*out_arr)[oh][ow][od] = (float (*)[oh][ow][od])(out_tensor.val);
+    float (*padded_in_arr)[ih][iw][ic] = (float (*)[ih][iw][ic])(padded_in_tensor.valPtr());
+    float (*ker_arr)[kw][od][ic] = (float (*)[kw][od][ic])(ker_tensor.valPtr());
+    float (*out_arr)[oh][ow][od] = (float (*)[oh][ow][od])(out_tensor.valPtr());
 
     clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
@@ -132,8 +139,8 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
                         for (int di = 0; di < kh; ++di) {
                             for (int dj = 0; dj < kw; ++dj) {
                                 out_arr[b][i][j][d] +=
-                                        in_arr[b][i + di][j + dj][c] * 
-                                        ker_arr[di][dj][d][c];
+                                        padded_in_arr[b][i + di][j + dj][c]
+                                        * ker_arr[di][dj][d][c];
                             }
                         }
                     }
@@ -160,8 +167,4 @@ int main(int argc, char* argv[])
     clock_t elasped = conv2D(in_tensor, ker_tensor, out_tensor);
     cout << (double) elasped / CLOCKS_PER_SEC << endl;
     writeFile("output_tensor.bin", out_tensor);
-
-    free(in_tensor.val);
-    free(ker_tensor.val);
-    free(out_tensor.val);
 }
