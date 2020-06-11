@@ -7,28 +7,30 @@
 #include <cassert>
 #include <algorithm>
 #include <ctime>
+#include <array>
 
 using namespace std;
 
+template <typename T> 
 struct Tensor {
-    int dim[4];
-    vector<float> val;
+    array<int, 4> dim;
+    vector<T> val;
 
-    inline float* valPtr()
+    inline T* valPtr()
     {
-        return const_cast<float*>(val.data());
+        return const_cast<T*>(val.data());
     }
 };
 
-void writeFile(const string& fname, Tensor& tensor)
+void writeFile(const string& fname, Tensor<float>& tensor)
 {
     ofstream ofs(fname, ios::binary);
-    ofs.write((char*) tensor.dim, 16);
+    ofs.write((char*) const_cast<int*>(tensor.dim.data()), 16);
     ofs.write((char*) tensor.valPtr(),
             sizeof(float) * tensor.val.size());
 }
 
-bool readFile(const string& fname, Tensor& tensor)
+bool readFile(const string& fname, Tensor<float>& tensor)
 {
     ifstream ifs(fname, ios::binary);
     if (!ifs.is_open()) {
@@ -39,7 +41,7 @@ bool readFile(const string& fname, Tensor& tensor)
     size_t fsize = ifs.tellg();
     ifs.seekg(0, ios::beg);
     
-    ifs.read((char*) tensor.dim, 16);
+    ifs.read((char*) const_cast<int*>(tensor.dim.data()), 16);
     tensor.val.assign((fsize - 16) / sizeof(float), 0);
     ifs.read((char*) tensor.valPtr(), fsize - 16);
     return true;
@@ -56,19 +58,24 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
     *pad_back = pad_size - *pad_front;
 }
 
-vector<T> getPadded(
+template <typename T> 
+Tensor<T> getPadded(
         int ih, int pad_top,
         int iw, int pad_left,
-        Tensor& in_tensor)
+        Tensor<T>& in_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
     int np_iw = in_tensor.dim[2];
     int ic = in_tensor.dim[3];
 
-    vector<T> padded_val(batch * ih * iw * ic, 0);
+    Tensor<T> padded_in_tensor;
+    padded_in_tensor.dim = in_tensor.dim;
+    padded_in_tensor.dim[1] = ih;
+    padded_in_tensor.dim[2] = iw;
+    padded_in_tensor.val.assign(batch * ih * iw * ic, 0);
 
-    T (*padded_val_arr)[ih][iw][ic] = (T (*)[ih][iw][ic]) const_cast<T*>(padded_val.data());
+    float (*padded_val_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) padded_in_tensor.valPtr();
     float (*val_arr)[np_ih][np_iw][ic] = (float (*)[np_ih][np_iw][ic]) in_tensor.valPtr();
 
     for (int b = 0; b < batch; ++b) {
@@ -82,10 +89,10 @@ vector<T> getPadded(
         }
     }
 
-    return padded_val;
+    return padded_in_tensor;
 }
 
-clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
+clock_t conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor, Tensor<float>& out_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
@@ -108,7 +115,7 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
 
     int ih = np_ih + pad_top + pad_bottom;
     int iw = np_iw + pad_left + pad_right;
-    vector<float> padded_val = getPadded(
+    Tensor<float> padded_in_tensor = getPadded<float>(
             ih, pad_top,
             iw, pad_left,
             in_tensor);
@@ -119,9 +126,9 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
     out_tensor.dim[3] = od;
     out_tensor.val.assign(batch * oh * ow * od, 0);
 
-    float (*padded_in_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) const_cast<float*>(padded_val.data());
-    float (*ker_arr)[kw][od][ic] = (float (*)[kw][od][ic])(ker_tensor.valPtr());
-    float (*out_arr)[oh][ow][od] = (float (*)[oh][ow][od])(out_tensor.valPtr());
+    float (*padded_in_arr)[ih][iw][ic] = (float (*)[ih][iw][ic]) padded_in_tensor.valPtr();
+    float (*ker_arr)[kw][od][ic] = (float (*)[kw][od][ic])ker_tensor.valPtr();
+    float (*out_arr)[oh][ow][od] = (float (*)[oh][ow][od])out_tensor.valPtr();
 
     clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
@@ -148,9 +155,9 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
 
 int main(int argc, char* argv[])
 {
-    Tensor in_tensor;
-    Tensor ker_tensor;
-    Tensor out_tensor;
+    Tensor<float> in_tensor;
+    Tensor<float> ker_tensor;
+    Tensor<float> out_tensor;
 
     if (!readFile(string(argv[1]), in_tensor) || !readFile(string(argv[2]), ker_tensor)) {
         cout << "File open failed." << endl;
