@@ -1,4 +1,6 @@
-**.bin
 **/convolution
 **.txt
-group1_tensor.tar
+*.tar
+__pycache__
+/*.bin
+**.out
