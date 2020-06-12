@@ -6,6 +6,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import copy
 import random
+import io
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -69,8 +70,8 @@ def cmp_all():
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-        os.system('{} {} {} {} {} {}'.format(
-                conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3]))
+        os.system('{} {} {} {} {} {} {}'.format(
+                conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3], 'pt'))
 
         ans_bin = '{}/group2/{}/o3.bin'.format(pwd, i)
         _, ans = read_file(ans_bin)
@@ -160,8 +161,8 @@ def avm_search(mode):
     for i in range(1):
         fit = 100
         # vec = [random.choice([-1, 1]) * random.random(), random.randint(20, 200)]
-        vec = [0.222, 70.0]
-        for j in range(4):
+        vec = [10.09, 5368759.11]
+        for j in range(20):
             vec_idx = j % 2
             new_vec, new_fit = variable_search(mode, answers, vec, vec_idx)
             print(new_vec, new_fit)
@@ -177,14 +178,9 @@ def avm_search(mode):
     
 
 
-# for i in [45, 48, 50, 52, 55]:
-#     print(i)
-#     s, fit = pattern_search(16, i)
-#     print(s, fit)
-# cmp_all()
 if __name__=="__main__":
-    avm_search(sys.argv[1])
-    # cmp_all()
+    # avm_search(sys.argv[1])
+    cmp_all()
         
 
 

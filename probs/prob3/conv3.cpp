@@ -15,6 +15,7 @@
 using namespace std;
 
 constexpr size_t P_THREADS = 4;
+bool arg_print_time = false;
 
 template <typename T> 
 struct Tensor {
@@ -142,7 +143,9 @@ void doConv2D(
             }
         }
     }
-    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    if (arg_print_time) {
+        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    }
 }
 
 void doConv2D(
@@ -199,7 +202,9 @@ void doConv2D(
             }
         }
     }
-    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    if (arg_print_time) {
+        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    }
 }
 
 void doConv2D(
@@ -255,7 +260,9 @@ void doConv2D(
             }
         }
     }
-    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    if (arg_print_time) {
+        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    }
 }
 
 Tensor<float> getPadded(
@@ -384,6 +391,9 @@ int main(int argc, char* argv[])
     if (argc < 6) {
         cout << "Invalid args." << endl;
         return 0;
+    }
+    if (argc >= 7 && string(argv[6]) == "pt") {
+        arg_print_time = true;
     }
     int mode = atoi(argv[3]);
     float s_in = atof(argv[4]);
