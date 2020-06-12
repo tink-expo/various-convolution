@@ -63,14 +63,15 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
 template<typename T>
 Tensor<T> getQuantized(float s_val, Tensor<float>& in_tensor)
 {
-    float min_val = (float) numeric_limits<T>::min();
-    float max_val = (float) numeric_limits<T>::max();
+    // float min_val = (float) numeric_limits<T>::min();
+    // float max_val = (float) numeric_limits<T>::max();
     
     Tensor<T> quan_in_tensor;
     quan_in_tensor.dim = in_tensor.dim;
     quan_in_tensor.val.assign(in_tensor.val.size(), 0);
     for (size_t i = 0; i < in_tensor.val.size(); ++i) {
-        quan_in_tensor.val[i] = (T) min(max_val, max(min_val, in_tensor.val[i] * s_val));
+        //quan_in_tensor.val[i] = (T) min(max_val, max(min_val, in_tensor.val[i] * s_val));
+        quan_in_tensor.val[i] = (T) (in_tensor.val[i] * s_val);
     }
     return quan_in_tensor;
 }
@@ -97,7 +98,7 @@ void doConv2D(
     // int32_t min_val = (int32_t) numeric_limits<T>::min();
     // int32_t max_val = (int32_t) numeric_limits<T>::max();
     
-    clock_t start_c = clock();
+    // clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
         for (int d = 0; d < od; ++d) {
             for (int i = 0; i < oh; ++i) {
@@ -117,6 +118,21 @@ void doConv2D(
                                     + d * ic
                                     + c
                                 ];
+                                if (i == 3 && j == 3 && d == 0) {
+                                    cout << padded_tensor.val[
+                                        b * (ih * iw * ic)
+                                        + (i + di) * (iw * ic)
+                                        + (j + dj) * ic
+                                        + c
+                                    ] << " " <<
+                                    ker_tensor.val[
+                                        di * (kw * od * ic)
+                                        + dj * (od * ic)
+                                        + d * ic
+                                        + c
+                                    ] << " " <<
+                                    acc << endl;
+                                }
                             }
                         }
                     }
@@ -130,7 +146,8 @@ void doConv2D(
             }
         }
     }
-    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    cout << "<>" << endl;
+    //cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
 }
 
 Tensor<float> getPadded(
@@ -261,8 +278,8 @@ int main(int argc, char* argv[])
         return 0;
     }
     int mode = atoi(argv[3]);
-    float s_val = atof(argv[4]);
-    // float s_ker = atof(argv[5]);
+    float s_in = atof(argv[4]);
+    float s_ker = atof(argv[5]);
 
     Tensor<float> in_tensor;
     Tensor<float> ker_tensor;
@@ -276,11 +293,11 @@ int main(int argc, char* argv[])
     if (mode == 0) {
         writeFile(out_fname, conv2D(in_tensor, ker_tensor));
     } else if (mode == 32) {
-        writeFile(out_fname, quanConv2D<int32_t>(s_val, s_val, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int32_t>(s_in, s_ker, in_tensor, ker_tensor));
     } else if (mode == 16) {
-        writeFile(out_fname, quanConv2D<int16_t>(s_val, s_val, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int16_t>(s_in, s_ker, in_tensor, ker_tensor));
     } else if (mode == 8) {
-        writeFile(out_fname, quanConv2D<int8_t>(s_val, s_val, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int8_t>(s_in, s_ker, in_tensor, ker_tensor));
     } else {
         cout << "Invalid args." << endl;
     }
