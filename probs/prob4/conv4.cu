@@ -9,12 +9,8 @@
 #include <ctime>
 #include <array>
 #include <limits>
-#include <pthread.h>
-#include <immintrin.h>
 
 using namespace std;
-
-constexpr int P_THREADS = 4;
 bool arg_print_time = false;
 
 template <typename T> 
@@ -26,16 +22,6 @@ struct Tensor {
     {
         return const_cast<T*>(val.data());
     }
-};
-
-template <typename T>
-struct ThreadArg {
-    Tensor<T>* padded_tensor;
-    Tensor<T>* ker_tensor;
-    Tensor<T>* out_tensor;
-    
-    int oh_s;
-    int oh_e;
 };
 
 void writeFile(const char* fname, const Tensor<float>& tensor)
@@ -99,424 +85,105 @@ Tensor<float> getDequantized(float s_val, Tensor<T>& quan_out_tensor)
     return fin_out_tensor;
 }
 
+template<typename T>
+vector<T> getKernelTranspose(
+        const Tensor<T>& ker_tensor)
+{
+    int kh = ker_tensor.dim[0];
+    int kw = ker_tensor.dim[1];
+    int od = ker_tensor.dim[2];
+    int ic = ker_tensor.dim[3];
 
-// [DoConv2D] - No pthread. Unused.
+    vector<T> trans_ker(ker_tensor.val.size());
 
+    for (int c = 0; c < ic; ++c) {
+        for (int i = 0; i < kh; ++i) {
+            for (int j = 0; j < kw; ++j) {
+                for (int d = 0; d < od; ++d) {
+                    trans_ker[
+                        c * (kh * kw * od) +
+                        i * (kw * od) +
+                        j * od +
+                        d
+                    ] = ker_tensor.val[
+                        i * (kw * od * ic) +
+                        j * (od * ic) +
+                        d * ic +
+                        c
+                    ];
+                }
+            }
+        }
+    }
+    return trans_ker;
+}
+
+template<typename T>
+vector<T> getIm2col(
+        int oh, int ow, int kh, int kw,
+        const Tensor<T>& padded_tensor)
+{
+    int batch = padded_tensor.dim[0];
+    int ih = padded_tensor.dim[1];
+    int iw = padded_tensor.dim[2];
+    int ic = padded_tensor.dim[3];
+    
+    int col_h = batch * oh * ow;
+    int col_w = ic * kh * kw;
+    vector<T> col(col_h * col_w);
+
+    for (int i = 0; i < oh; ++i) {
+        for (int j = 0; j < ow; ++j) {
+            for (int c = 0; c < ic; ++c) {
+                int col_i = i * ow + j;
+                int col_j = c * (kh * kw);
+                for (int di = 0; di < kh; ++di) {
+                    for (int dj = 0; dj < kw; ++dj) {
+                        col[
+                            col_i * col_w +
+                            col_j + (di * kw) + dj
+                        ] = padded_tensor.val[
+                            (i + di) * (iw * ic) +
+                            (j + dj) * ic +
+                            c
+                        ];
+                    }
+                }
+            }
+        }
+    }
+    return col;
+}
+
+// TODO: Try change order of loops to see performance reasonable in type order.
+template<typename T>
 void doConv2D(
-        int batch, int ih, int iw, int ic, 
-        int kh, int kw, int od,
-        int oh, int ow,
-        Tensor<int16_t>& padded_tensor, Tensor<int16_t>& ker_tensor, Tensor<int16_t>& out_tensor)
-{
-    clock_t start_c = clock();
-    int16_t* padded_val_ptr = (int16_t*) padded_tensor.valPtr();
-    int16_t* ker_val_ptr = (int16_t*) ker_tensor.valPtr();
-    int16_t* out_val_ptr = (int16_t*) out_tensor.valPtr();
-
-    for (int b = 0; b < batch; ++b) {
-        for (int i = 0; i < oh; ++i) {
-            for (int j = 0; j < ow; ++j) {
-                for (int d = 0; d < od; ++d) {
-                    int16_t acc = 0;
-                    __m256i r_av = _mm256_setzero_si256();
-                    for (int di = 0; di < kh; ++di) {
-                        for (int dj = 0; dj < kw; ++dj) {
-                            int i_idx = b * (ih * iw * ic)
-                                    + (i + di) * (iw * ic)
-                                    + (j + dj) * ic;
-                            int k_idx = di * (kw * od * ic)
-                                    + dj * (od * ic)
-                                    + d * ic;
-                            int c = 0;
-                            for (c = 0; c <= ic - 16; c += 16) {
-                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
-                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
-                                __m256i mu_av = _mm256_mullo_epi16(in_av, k_av);
-                                r_av = _mm256_adds_epi16(r_av, mu_av);
-                            }
-                            if (c < ic) {
-                                for (; c < ic; ++c) {
-                                    acc += padded_val_ptr[i_idx + c]
-                                           * ker_val_ptr[k_idx + c];
-                                }
-                            }
-                        }
-                    }
-                    int16_t* r_av_ptr = (int16_t*)&r_av;
-                    for (int avi = 0; avi < 16; ++avi) {
-                        acc += r_av_ptr[avi];
-                    }
-                    out_val_ptr[
-                        b * (oh * ow * od)
-                        + i * (ow * od)
-                        + j * od
-                        + d
-                    ] = acc;
-                }
-            }
-        }
-    }
-    if (arg_print_time) {
-        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
-    }
-}
-
-void doConv2D(
-        int batch, int ih, int iw, int ic, 
-        int kh, int kw, int od,
-        int oh, int ow,
-        Tensor<int32_t>& padded_tensor, Tensor<int32_t>& ker_tensor, Tensor<int32_t>& out_tensor)
-{
-    clock_t start_c = clock();
-    int32_t* padded_val_ptr = (int32_t*) padded_tensor.valPtr();
-    int32_t* ker_val_ptr = (int32_t*) ker_tensor.valPtr();
-    int32_t* out_val_ptr = (int32_t*) out_tensor.valPtr();
-
-    for (int b = 0; b < batch; ++b) {
-        for (int i = 0; i < oh; ++i) {
-            for (int j = 0; j < ow; ++j) {
-                for (int d = 0; d < od; ++d) {
-                    int32_t acc = 0;
-                    __m256i r_av = _mm256_setzero_si256();
-                    for (int di = 0; di < kh; ++di) {
-                        for (int dj = 0; dj < kw; ++dj) {
-                            int i_idx = b * (ih * iw * ic)
-                                    + (i + di) * (iw * ic)
-                                    + (j + dj) * ic;
-                            int k_idx = di * (kw * od * ic)
-                                    + dj * (od * ic)
-                                    + d * ic;
-                            int c = 0;
-                            for (c = 0; c <= ic - 8; c += 8) {
-                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
-                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
-                                __m256i mu_av = _mm256_mullo_epi32(in_av, k_av);
-                                r_av = _mm256_add_epi32(r_av, mu_av);
-                            }
-                            if (c < ic) {
-                                for (; c < ic; ++c) {
-                                    acc += padded_val_ptr[i_idx + c]
-                                           * ker_val_ptr[k_idx + c];
-                                }
-                            }
-                        }
-                    }
-                    int32_t* r_av_ptr = (int32_t*)&r_av;
-                    for (int avi = 0; avi < 8; ++avi) {
-                        acc += r_av_ptr[avi];
-                    }
-                    out_val_ptr[
-                        b * (oh * ow * od)
-                        + i * (ow * od)
-                        + j * od
-                        + d
-                    ] = acc;
-                }
-            }
-        }
-    }
-    if (arg_print_time) {
-        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
-    }
-}
-
-void doConv2D(
-        int batch, int ih, int iw, int ic, 
-        int kh, int kw, int od,
-        int oh, int ow,
-        Tensor<float>& padded_tensor, Tensor<float>& ker_tensor, Tensor<float>& out_tensor)
-{
-    clock_t start_c = clock();
-    float* padded_val_ptr = (float*) padded_tensor.valPtr();
-    float* ker_val_ptr = (float*) ker_tensor.valPtr();
-    float* out_val_ptr = (float*) out_tensor.valPtr();
-    for (int b = 0; b < batch; ++b) {
-        for (int i = 0; i < oh; ++i) {
-            for (int j = 0; j < ow; ++j) {
-                for (int d = 0; d < od; ++d) {
-                    float acc = 0;
-                    __m256 r_av = _mm256_setzero_ps();
-                    for (int di = 0; di < kh; ++di) {
-                        for (int dj = 0; dj < kw; ++dj) {
-                            int i_idx = b * (ih * iw * ic)
-                                    + (i + di) * (iw * ic)
-                                    + (j + dj) * ic;
-                            int k_idx = di * (kw * od * ic)
-                                    + dj * (od * ic)
-                                    + d * ic;
-                            int c = 0;
-                            for (c = 0; c <= ic - 8; c += 8) {
-                                __m256 in_av = _mm256_loadu_ps(padded_val_ptr + i_idx + c);
-                                __m256 k_av = _mm256_loadu_ps(ker_val_ptr + k_idx + c);
-                                __m256 mu_av = _mm256_mul_ps(in_av, k_av);
-                                r_av = _mm256_add_ps(r_av, mu_av);
-                            }
-                            if (c < ic) {
-                                for (; c < ic; ++c) {
-                                    acc += padded_val_ptr[i_idx + c]
-                                           * ker_val_ptr[k_idx + c];
-                                }
-                            }
-                        }
-                    }
-                    float* r_av_ptr = (float*)&r_av;
-                    for (int avi = 0; avi < 8; ++avi) {
-                        acc += r_av_ptr[avi];
-                    }
-                    out_val_ptr[
-                        b * (oh * ow * od)
-                        + i * (ow * od)
-                        + j * od
-                        + d
-                    ] = acc;
-                }
-            }
-        }
-    }
-    if (arg_print_time) {
-        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
-    }
-}
-
-// [DoConv2D] End.
-
-
-void* threadFuncInt16(void* thread_arg) 
-{
-    ThreadArg<int16_t>* arg = (ThreadArg<int16_t>*) thread_arg;
-
-    int batch = arg->padded_tensor->dim[0];
-    int ih = arg->padded_tensor->dim[1];
-    int iw = arg->padded_tensor->dim[2];
-    int ic = arg->padded_tensor->dim[3];
-    int kh = arg->ker_tensor->dim[0];
-    int kw = arg->ker_tensor->dim[1];
-    int od = arg->ker_tensor->dim[2];
-    int oh = arg->out_tensor->dim[1];
-    int ow = arg->out_tensor->dim[2];
-
-    int16_t* padded_val_ptr = (int16_t*) arg->padded_tensor->valPtr();
-    int16_t* ker_val_ptr = (int16_t*) arg->ker_tensor->valPtr();
-    int16_t* out_val_ptr = (int16_t*) arg->out_tensor->valPtr();
-
-    for (int b = 0; b < batch; ++b) {
-        for (int i = arg->oh_s; i < arg->oh_e; ++i) {
-            for (int j = 0; j < ow; ++j) {
-                for (int d = 0; d < od; ++d) {
-                    int16_t acc = 0;
-                    __m256i r_av = _mm256_setzero_si256();
-                    for (int di = 0; di < kh; ++di) {
-                        for (int dj = 0; dj < kw; ++dj) {
-                            int i_idx = b * (ih * iw * ic)
-                                    + (i + di) * (iw * ic)
-                                    + (j + dj) * ic;
-                            int k_idx = di * (kw * od * ic)
-                                    + dj * (od * ic)
-                                    + d * ic;
-                            int c = 0;
-                            for (c = 0; c <= ic - 16; c += 16) {
-                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
-                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
-                                __m256i mu_av = _mm256_mullo_epi16(in_av, k_av);
-                                r_av = _mm256_adds_epi16(r_av, mu_av);
-                            }
-                            if (c < ic) {
-                                for (; c < ic; ++c) {
-                                    acc += padded_val_ptr[i_idx + c]
-                                           * ker_val_ptr[k_idx + c];
-                                }
-                            }
-                        }
-                    }
-                    int16_t* r_av_ptr = (int16_t*)&r_av;
-                    for (int avi = 0; avi < 16; ++avi) {
-                        acc += r_av_ptr[avi];
-                    }
-                    out_val_ptr[
-                        b * (oh * ow * od)
-                        + i * (ow * od)
-                        + j * od
-                        + d
-                    ] = acc;
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-void* threadFuncInt32(void* thread_arg) 
-{
-    ThreadArg<int32_t>* arg = (ThreadArg<int32_t>*) thread_arg;
-
-    int batch = arg->padded_tensor->dim[0];
-    int ih = arg->padded_tensor->dim[1];
-    int iw = arg->padded_tensor->dim[2];
-    int ic = arg->padded_tensor->dim[3];
-    int kh = arg->ker_tensor->dim[0];
-    int kw = arg->ker_tensor->dim[1];
-    int od = arg->ker_tensor->dim[2];
-    int oh = arg->out_tensor->dim[1];
-    int ow = arg->out_tensor->dim[2];
-
-    int32_t* padded_val_ptr = (int32_t*) arg->padded_tensor->valPtr();
-    int32_t* ker_val_ptr = (int32_t*) arg->ker_tensor->valPtr();
-    int32_t* out_val_ptr = (int32_t*) arg->out_tensor->valPtr();
-
-    for (int b = 0; b < batch; ++b) {
-        for (int i = arg->oh_s; i < arg->oh_e; ++i) {
-            for (int j = 0; j < ow; ++j) {
-                for (int d = 0; d < od; ++d) {
-                    int32_t acc = 0;
-                    __m256i r_av = _mm256_setzero_si256();
-                    for (int di = 0; di < kh; ++di) {
-                        for (int dj = 0; dj < kw; ++dj) {
-                            int i_idx = b * (ih * iw * ic)
-                                    + (i + di) * (iw * ic)
-                                    + (j + dj) * ic;
-                            int k_idx = di * (kw * od * ic)
-                                    + dj * (od * ic)
-                                    + d * ic;
-                            int c = 0;
-                            for (c = 0; c <= ic - 8; c += 8) {
-                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
-                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
-                                __m256i mu_av = _mm256_mullo_epi32(in_av, k_av);
-                                r_av = _mm256_add_epi32(r_av, mu_av);
-                            }
-                            if (c < ic) {
-                                for (; c < ic; ++c) {
-                                    acc += padded_val_ptr[i_idx + c]
-                                           * ker_val_ptr[k_idx + c];
-                                }
-                            }
-                        }
-                    }
-                    int32_t* r_av_ptr = (int32_t*)&r_av;
-                    for (int avi = 0; avi < 8; ++avi) {
-                        acc += r_av_ptr[avi];
-                    }
-                    out_val_ptr[
-                        b * (oh * ow * od)
-                        + i * (ow * od)
-                        + j * od
-                        + d
-                    ] = acc;
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-void* threadFuncFloat(void* thread_arg)
-{
-    ThreadArg<float>* arg = (ThreadArg<float>*) thread_arg;
-
-    int batch = arg->padded_tensor->dim[0];
-    int ih = arg->padded_tensor->dim[1];
-    int iw = arg->padded_tensor->dim[2];
-    int ic = arg->padded_tensor->dim[3];
-    int kh = arg->ker_tensor->dim[0];
-    int kw = arg->ker_tensor->dim[1];
-    int od = arg->ker_tensor->dim[2];
-    int oh = arg->out_tensor->dim[1];
-    int ow = arg->out_tensor->dim[2];
-
-    float* padded_val_ptr = (float*) arg->padded_tensor->valPtr();
-    float* ker_val_ptr = (float*) arg->ker_tensor->valPtr();
-    float* out_val_ptr = (float*) arg->out_tensor->valPtr();
-
-    for (int b = 0; b < batch; ++b) {
-        for (int i = arg->oh_s; i < arg->oh_e; ++i) {
-            for (int j = 0; j < ow; ++j) {
-                for (int d = 0; d < od; ++d) {
-                    float acc = 0;
-                    __m256 r_av = _mm256_setzero_ps();
-                    for (int di = 0; di < kh; ++di) {
-                        for (int dj = 0; dj < kw; ++dj) {
-                            int i_idx = b * (ih * iw * ic)
-                                    + (i + di) * (iw * ic)
-                                    + (j + dj) * ic;
-                            int k_idx = di * (kw * od * ic)
-                                    + dj * (od * ic)
-                                    + d * ic;
-                            int c = 0;
-                            for (c = 0; c <= ic - 8; c += 8) {
-                                __m256 in_av = _mm256_loadu_ps(padded_val_ptr + i_idx + c);
-                                __m256 k_av = _mm256_loadu_ps(ker_val_ptr + k_idx + c);
-                                __m256 mu_av = _mm256_mul_ps(in_av, k_av);
-                                r_av = _mm256_add_ps(r_av, mu_av);
-                            }
-                            if (c < ic) {
-                                for (; c < ic; ++c) {
-                                    acc += padded_val_ptr[i_idx + c]
-                                           * ker_val_ptr[k_idx + c];
-                                }
-                            }
-                        }
-                    }
-                    float* r_av_ptr = (float*)&r_av;
-                    for (int avi = 0; avi < 8; ++avi) {
-                        acc += r_av_ptr[avi];
-                    }
-                    out_val_ptr[
-                        b * (oh * ow * od)
-                        + i * (ow * od)
-                        + j * od
-                        + d
-                    ] = acc;
-                }
-            }
-        }
-    }
-
-    return 0;
-}
-
-template <typename T>
-void doConv2Dpthread(
-        int mode,
-        int oh,
         Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
     clock_t start_c = clock();
-    pthread_t threads[P_THREADS];
-    ThreadArg<T> t_args[P_THREADS];
 
-    int num_threads = min(P_THREADS, oh);
-    int oh_part_size = oh / num_threads;
+    int oh = out_tensor.dim[1];
+    int ow = out_tensor.dim[2];
+    int kh = ker_tensor.dim[0];
+    int kw = ker_tensor.dim[1];
+    int od = ker_tensor.dim[2];
+    int ic = ker_tensor.dim[3];
 
-    t_args[0].padded_tensor = &padded_tensor;
-    t_args[0].ker_tensor = &ker_tensor;
-    t_args[0].out_tensor = &out_tensor;
+    const vector<T>& trans_ker = getKernelTranspose(ker_tensor);
+    const vector<T>& col = getIm2col(oh, ow, kh, kw, padded_tensor);
 
-    int t_id = -1;
-    for (int t_idx = 0; t_idx < num_threads; ++t_idx) {
-        if (t_idx > 0) {
-            t_args[t_idx] = t_args[0];
+    int m_size = oh * ow;
+    int n_size = od;
+    int k_size = ic * kh * kw;
+
+    for (int i = 0; i < m_size; ++i) {
+        for (int j = 0; j < n_size; ++j) {
+            T acc = 0;
+            for (int k = 0; k < k_size; ++k) {
+                acc += col[i * k_size + k] * trans_ker[k * n_size + j];
+            }
+            out_tensor.val[i * n_size + j] = acc;
         }
-
-        int oh_s = oh_part_size * t_idx;
-        int oh_e = t_idx < num_threads - 1 ? oh_s + oh_part_size : oh;
-
-        t_args[t_idx].oh_s = oh_s;
-        t_args[t_idx].oh_e = oh_e;
-        if (mode == 0) {
-            t_id = pthread_create(&threads[t_idx], NULL, threadFuncFloat, (void*) &t_args[t_idx]);
-        } else if (mode == 32) {
-            t_id = pthread_create(&threads[t_idx], NULL, threadFuncInt32, (void*) &t_args[t_idx]);
-        } else if (mode == 16) {
-            t_id = pthread_create(&threads[t_idx], NULL, threadFuncInt16, (void*) &t_args[t_idx]);
-        }
-        if (t_id < 0) {
-            perror("pthread error");
-            exit(0);
-        }
-    }
-
-    for (int t_idx = 0; t_idx < num_threads; ++t_idx) {
-        pthread_join(threads[t_idx], NULL);
     }
 
     if (arg_print_time) {
@@ -556,12 +223,12 @@ Tensor<float> getPadded(
     return padded_tensor;
 }
 
-Tensor<float> conv2D(int mode, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+Tensor<float> conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
     int np_iw = in_tensor.dim[2];
-    // int ic = in_tensor.dim[3];
+    int ic = in_tensor.dim[3];
 
     int kh = ker_tensor.dim[0];
     int kw = ker_tensor.dim[1];
@@ -592,14 +259,12 @@ Tensor<float> conv2D(int mode, Tensor<float>& in_tensor, Tensor<float>& ker_tens
             iw, pad_left,
             in_tensor);
     
-    doConv2Dpthread(
-            mode, oh,
-            padded_tensor, ker_tensor, out_tensor);
+    doConv2D<float>(padded_tensor, ker_tensor, out_tensor);
     return out_tensor;
 }
 
 template <typename T>
-Tensor<float> quanConv2D(int mode, float s_in, float s_ker, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
@@ -637,9 +302,7 @@ Tensor<float> quanConv2D(int mode, float s_in, float s_ker, Tensor<float>& in_te
     out_tensor.dim[3] = od;
     out_tensor.val.assign(batch * oh * ow * od, 0);
 
-    doConv2D(
-            batch, ih, iw, ic, kh, kw, od, oh, ow,
-            padded_tensor, quan_ker_tensor, out_tensor);
+    doConv2D<T>(padded_tensor, quan_ker_tensor, out_tensor);
 
     return getDequantized(s_in * s_ker, out_tensor);
 }
@@ -654,6 +317,7 @@ int main(int argc, char* argv[])
     if (argc >= 7 && string(argv[6]) == "pt") {
         arg_print_time = true;
     }
+
     int mode = atoi(argv[3]);
     float s_in = atof(argv[4]);
     float s_ker = atof(argv[5]);
@@ -668,11 +332,13 @@ int main(int argc, char* argv[])
 
     constexpr char out_fname[] = "output_tensor.bin";
     if (mode == 0) {
-        writeFile(out_fname, conv2D(mode, in_tensor, ker_tensor));
+        writeFile(out_fname, conv2D(in_tensor, ker_tensor));
     } else if (mode == 32) {
-        writeFile(out_fname, quanConv2D<int32_t>(mode, s_in, s_ker, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int32_t>(s_in, s_ker, in_tensor, ker_tensor));
     } else if (mode == 16) {
-        writeFile(out_fname, quanConv2D<int16_t>(mode, s_in, s_ker, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int16_t>(s_in, s_ker, in_tensor, ker_tensor));
+    } else if (mode == 8) {
+        writeFile(out_fname, quanConv2D<int8_t>(s_in, s_ker, in_tensor, ker_tensor));
     } else {
         cout << "Invalid args." << endl;
     }

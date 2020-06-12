@@ -8,6 +8,8 @@ import copy
 import random
 import io
 
+prob_num = 4
+
 def read_file(fname):
     whole = np.fromfile(fname)
     dim = np.frombuffer(whole.data, dtype=np.int32, count=4)
@@ -66,14 +68,14 @@ def cmp_all():
 
     pwd = os.getcwd()
     out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob3/convolution'.format(pwd)
+    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_num)
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
         os.system('{} {} {} {} {} {} {}'.format(
                 conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3], 'pt'))
 
-        ans_bin = '{}/group2/{}/o3.bin'.format(pwd, i)
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, prob_num)
         _, ans = read_file(ans_bin)
         # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
@@ -108,7 +110,7 @@ SEND = 10
 def eval_error(mode, answers, vector, vec_idx, vec_val):
     pwd = os.getcwd()
     out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob3/convolution'.format(pwd)
+    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_num)
     errors = []
     vec_org = vector[vec_idx]
     vector[vec_idx] = vec_val
@@ -154,7 +156,7 @@ def avm_search(mode):
     pwd = os.getcwd()
     answers = {}
     for i in range(1, 4):
-        ans_bin = '{}/group2/{}/o3.bin'.format(pwd, i)
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, prob_num)
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
