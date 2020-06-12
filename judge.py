@@ -4,6 +4,8 @@ import os
 import math
 import tensorflow as tf
 import tensorflow.keras.backend as K
+import copy
+import random
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -102,44 +104,41 @@ def quan_i(s, dt):
 
 SEND = 100
 
-def eval_error(mode, answers, x):
-    send_x = x / SEND
+def eval_error(mode, answers, vector, vec_idx, vec_val):
     pwd = os.getcwd()
     out_bin = '{}/output_tensor.bin'.format(pwd)
     conv = '{}/probs/prob2/convolution'.format(pwd)
     errors = []
+    vec_org = vector[vec_idx]
+    vector[vec_idx] = vec_val
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-        os.system('{} {} {} {} {}'.format(
-                conv, in_bin, ker_bin, mode, send_x))
+        os.system('{} {} {} {} {} {}'.format(
+                conv, in_bin, ker_bin, mode, vector[0] / SEND, vector[1] / SEND))
         _, oup = read_file(out_bin)
         ans = answers[i]
         errors.append(NRMSE(oup, ans))
+    vector[vec_idx] = vec_org
     return sum(errors) / len(errors)
 
-def pattern_search(mode, ini_x):
-    pwd = os.getcwd()
-    answers = {}
-    for i in range(1, 4):
-        ans_bin = '{}/group2/ans/o{}.bin'.format(pwd, i)
-        _, answers[i] = read_file(ans_bin)
-
-    x = ini_x * SEND
-    fit = eval_error(mode, answers, x)
+def variable_search(mode, answers, ini_vec, vec_idx):
+    vec = [SEND * e for e in ini_vec]
+    x = vec[vec_idx]
+    fit = eval_error(mode, answers, vec, vec_idx, x)
     if fit == 0:
-        return x / SEND, 0
+        return [x / SEND for x in vec], 0
 
     while True:
-        decr = eval_error(mode, answers, x - 1)
-        incr = eval_error(mode, answers, x + 1)
+        decr = eval_error(mode, answers, vec, vec_idx, x - 1)
+        incr = eval_error(mode, answers, vec, vec_idx, x + 1)
 
         if fit <= decr and fit <= incr:
             break
 
         k = 1 if decr > incr else -1
         while True:
-            fit_next = eval_error(mode, answers, x + k)
+            fit_next = eval_error(mode, answers, vec, vec_idx, x + k)
             if fit_next >= fit:
                 break
             else:
@@ -147,7 +146,35 @@ def pattern_search(mode, ini_x):
                 k = 2 * k
                 fit = fit_next
 
-    return x / SEND, fit 
+    vec[vec_idx] = x
+    return [x / SEND for x in vec], fit
+
+def avm_search(mode):
+    pwd = os.getcwd()
+    answers = {}
+    for i in range(1, 4):
+        ans_bin = '{}/group2/ans/o{}.bin'.format(pwd, i)
+        _, answers[i] = read_file(ans_bin)
+
+    min_fit = 100
+    for i in range(10):
+        fit = 100
+        vec = [random.choice([-1, 1]) * random.random(), random.randint(20, 200)]
+        for j in range(4):
+            vec_idx = j % 2
+            new_vec, new_fit = variable_search(mode, answers, vec, vec_idx)
+            print(new_vec, new_fit)
+            if new_fit < fit:
+                vec = new_vec
+                fit = new_fit
+        if fit < min_fit:
+            min_fit = fit
+            min_vec = vec
+
+    print(min_vec, min_fit)
+
+    
+
 
 # for i in [45, 48, 50, 52, 55]:
 #     print(i)
@@ -155,7 +182,7 @@ def pattern_search(mode, ini_x):
 #     print(s, fit)
 # cmp_all()
 if __name__=="__main__":
-    cmp_all()
+    avm_search(sys.argv[1])
         
 
 
