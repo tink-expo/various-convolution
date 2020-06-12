@@ -71,59 +71,20 @@ Tensor<T> getQuantized(float s_val, Tensor<float>& in_tensor)
     quan_in_tensor.val.assign(in_tensor.val.size(), 0);
     for (size_t i = 0; i < in_tensor.val.size(); ++i) {
         quan_in_tensor.val[i] = (T) min(max_val, max(min_val, in_tensor.val[i] * s_val));
-        if (i < 10) {
-            cout << in_tensor.val[i] << " " << quan_in_tensor.val[i] << "| ";
-        }
     }
-    cout << endl;
     return quan_in_tensor;
 }
 
 template<typename T>
 Tensor<float> getDequantized(float s_val, Tensor<T>& quan_out_tensor)
 {
-    float s_val_sq = s_val * s_val;
-    
     Tensor<float> fin_out_tensor;
     fin_out_tensor.dim = quan_out_tensor.dim;
     fin_out_tensor.val.assign(quan_out_tensor.val.size(), 0);
     for (size_t i = 0; i < quan_out_tensor.val.size(); ++i) {
-        fin_out_tensor.val[i] = (float) quan_out_tensor.val[i] / s_val_sq;
+        fin_out_tensor.val[i] = (float) quan_out_tensor.val[i] / s_val;
     }
     return fin_out_tensor;
-}
-
-template<typename T>
-void doConv2DArr(
-        int batch, int ih, int iw, int ic, 
-        int kh, int kw, int od,
-        int oh, int ow,
-        Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
-{
-    T (*padded_arr)[ih][iw][ic] = (T (*)[ih][iw][ic]) padded_tensor.valPtr();
-    T (*ker_arr)[kw][od][ic] = (T (*)[kw][od][ic]) ker_tensor.valPtr();
-    T (*out_arr)[oh][ow][od] = (T (*)[oh][ow][od]) out_tensor.valPtr();
-
-    clock_t start_c = clock();
-    for (int b = 0; b < batch; ++b) {
-        for (int d = 0; d < od; ++d) {
-            for (int i = 0; i < oh; ++i) {
-                for (int j = 0; j < ow; ++j) {
-                    for (int c = 0; c < ic; ++c) {
-                        for (int di = 0; di < kh; ++di) {
-                            for (int dj = 0; dj < kw; ++dj) {
-                                out_arr[b][i][j][d] +=
-                                        padded_arr[b][i + di][j + dj][c]
-                                        * ker_arr[di][dj][d][c];
-                                
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
 }
 
 template<typename T>
@@ -133,23 +94,19 @@ void doConv2D(
         int oh, int ow,
         Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
-    // cout << batch << " " << ih << " " << iw << " " << ic << " " << kh << " " << kw << " " << od << " " << oh << " " << oh << " " << ow <<
-    //         out_tensor.val.size() << " " << padded_tensor.val.size() << " " << ker_tensor.val.size() << endl;
+    // int32_t min_val = (int32_t) numeric_limits<T>::min();
+    // int32_t max_val = (int32_t) numeric_limits<T>::max();
     
     clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
         for (int d = 0; d < od; ++d) {
             for (int i = 0; i < oh; ++i) {
                 for (int j = 0; j < ow; ++j) {
+                    T acc = 0;
                     for (int c = 0; c < ic; ++c) {
                         for (int di = 0; di < kh; ++di) {
                             for (int dj = 0; dj < kw; ++dj) {
-                                out_tensor.val[
-                                    b * (oh * ow * od)
-                                    + i * (ow * od)
-                                    + j * od
-                                    + d
-                                ] += padded_tensor.val[
+                                acc += padded_tensor.val[
                                     b * (ih * iw * ic)
                                     + (i + di) * (iw * ic)
                                     + (j + dj) * ic
@@ -160,20 +117,15 @@ void doConv2D(
                                     + d * ic
                                     + c
                                 ];
-
-
-                                // if (i == 2 && j == 2 && c == 0 && di == 0 && dj == 0) {
-                                //     cout << (int) out_tensor.val[
-                                //         b * (oh * ow * od)
-                                //         + i * (ow * od)
-                                //         + j * od
-                                //         + d
-                                //     ] << endl;
-                                // }
-                                
                             }
                         }
                     }
+                    out_tensor.val[
+                        b * (oh * ow * od)
+                        + i * (ow * od)
+                        + j * od
+                        + d
+                    ] = acc;
                 }
             }
         }
@@ -256,7 +208,7 @@ Tensor<float> conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 }
 
 template <typename T>
-Tensor<float> quanConv2D(float s_val, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
@@ -284,8 +236,8 @@ Tensor<float> quanConv2D(float s_val, Tensor<float>& in_tensor, Tensor<float>& k
             ih, pad_top,
             iw, pad_left,
             in_tensor);
-    Tensor<T> padded_tensor = getQuantized<T>(s_val, unquan_padded_tensor);
-    Tensor<T> quan_ker_tensor = getQuantized<T>(s_val, ker_tensor);
+    Tensor<T> padded_tensor = getQuantized<T>(s_in, unquan_padded_tensor);
+    Tensor<T> quan_ker_tensor = getQuantized<T>(s_ker, ker_tensor);
 
     Tensor<T> out_tensor;
     out_tensor.dim[0] = batch;
@@ -298,7 +250,7 @@ Tensor<float> quanConv2D(float s_val, Tensor<float>& in_tensor, Tensor<float>& k
             batch, ih, iw, ic, kh, kw, od, oh, ow,
             padded_tensor, quan_ker_tensor, out_tensor);
 
-    return getDequantized(s_val, out_tensor);
+    return getDequantized(s_in * s_ker, out_tensor);
 }
 
 
@@ -309,7 +261,8 @@ int main(int argc, char* argv[])
         return 0;
     }
     int mode = atoi(argv[3]);
-    float s_val = argc >= 5 ? atof(argv[4]) : 0.0f;
+    float s_val = atof(argv[4]);
+    // float s_ker = atof(argv[5]);
 
     Tensor<float> in_tensor;
     Tensor<float> ker_tensor;
@@ -323,11 +276,11 @@ int main(int argc, char* argv[])
     if (mode == 0) {
         writeFile(out_fname, conv2D(in_tensor, ker_tensor));
     } else if (mode == 32) {
-        writeFile(out_fname, quanConv2D<int32_t>(s_val, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int32_t>(s_val, s_val, in_tensor, ker_tensor));
     } else if (mode == 16) {
-        writeFile(out_fname, quanConv2D<int16_t>(s_val, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int16_t>(s_val, s_val, in_tensor, ker_tensor));
     } else if (mode == 8) {
-        writeFile(out_fname, quanConv2D<int8_t>(s_val, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int8_t>(s_val, s_val, in_tensor, ker_tensor));
     } else {
         cout << "Invalid args." << endl;
     }

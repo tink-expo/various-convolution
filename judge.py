@@ -68,7 +68,8 @@ def cmp_all():
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-        os.system('{} {} {} {} {}'.format(conv, in_bin, ker_bin, sys.argv[1], sys.argv[2]))
+        os.system('{} {} {} {} {}'.format(
+                conv, in_bin, ker_bin, sys.argv[1], sys.argv[2]))
 
         ans_bin = '{}/group2/ans/o{}.bin'.format(pwd, i)
         _, ans = read_file(ans_bin)
@@ -101,7 +102,7 @@ def quan_i(s, dt):
     quan(ker, s, dt)
 
 
-quan_i(100, np.int32)
+cmp_all()
 
         
 
