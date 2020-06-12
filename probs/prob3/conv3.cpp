@@ -99,6 +99,9 @@ Tensor<float> getDequantized(float s_val, Tensor<T>& quan_out_tensor)
     return fin_out_tensor;
 }
 
+
+// [DoConv2D] - No pthread. Unused.
+
 void doConv2D(
         int batch, int ih, int iw, int ic, 
         int kh, int kw, int od,
@@ -275,6 +278,137 @@ void doConv2D(
     }
 }
 
+// [DoConv2D] End.
+
+
+void* threadFuncInt16(void* thread_arg) 
+{
+    ThreadArg<int16_t>* arg = (ThreadArg<int16_t>*) thread_arg;
+
+    int batch = arg->padded_tensor->dim[0];
+    int ih = arg->padded_tensor->dim[1];
+    int iw = arg->padded_tensor->dim[2];
+    int ic = arg->padded_tensor->dim[3];
+    int kh = arg->ker_tensor->dim[0];
+    int kw = arg->ker_tensor->dim[1];
+    int od = arg->ker_tensor->dim[2];
+    int oh = arg->out_tensor->dim[1];
+    int ow = arg->out_tensor->dim[2];
+
+    int16_t* padded_val_ptr = (int16_t*) arg->padded_tensor->valPtr();
+    int16_t* ker_val_ptr = (int16_t*) arg->ker_tensor->valPtr();
+    int16_t* out_val_ptr = (int16_t*) arg->out_tensor->valPtr();
+
+    for (int b = 0; b < batch; ++b) {
+        for (int i = arg->oh_s; i < arg->oh_e; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
+                    int16_t acc = 0;
+                    __m256i r_av = _mm256_setzero_si256();
+                    for (int di = 0; di < kh; ++di) {
+                        for (int dj = 0; dj < kw; ++dj) {
+                            int i_idx = b * (ih * iw * ic)
+                                    + (i + di) * (iw * ic)
+                                    + (j + dj) * ic;
+                            int k_idx = di * (kw * od * ic)
+                                    + dj * (od * ic)
+                                    + d * ic;
+                            int c = 0;
+                            for (c = 0; c <= ic - 16; c += 16) {
+                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
+                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
+                                __m256i mu_av = _mm256_mullo_epi16(in_av, k_av);
+                                r_av = _mm256_adds_epi16(r_av, mu_av);
+                            }
+                            if (c < ic) {
+                                for (; c < ic; ++c) {
+                                    acc += padded_val_ptr[i_idx + c]
+                                           * ker_val_ptr[k_idx + c];
+                                }
+                            }
+                        }
+                    }
+                    int16_t* r_av_ptr = (int16_t*)&r_av;
+                    for (int avi = 0; avi < 16; ++avi) {
+                        acc += r_av_ptr[avi];
+                    }
+                    out_val_ptr[
+                        b * (oh * ow * od)
+                        + i * (ow * od)
+                        + j * od
+                        + d
+                    ] = acc;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+void* threadFuncInt32(void* thread_arg) 
+{
+    ThreadArg<int32_t>* arg = (ThreadArg<int32_t>*) thread_arg;
+
+    int batch = arg->padded_tensor->dim[0];
+    int ih = arg->padded_tensor->dim[1];
+    int iw = arg->padded_tensor->dim[2];
+    int ic = arg->padded_tensor->dim[3];
+    int kh = arg->ker_tensor->dim[0];
+    int kw = arg->ker_tensor->dim[1];
+    int od = arg->ker_tensor->dim[2];
+    int oh = arg->out_tensor->dim[1];
+    int ow = arg->out_tensor->dim[2];
+
+    int32_t* padded_val_ptr = (int32_t*) arg->padded_tensor->valPtr();
+    int32_t* ker_val_ptr = (int32_t*) arg->ker_tensor->valPtr();
+    int32_t* out_val_ptr = (int32_t*) arg->out_tensor->valPtr();
+
+    for (int b = 0; b < batch; ++b) {
+        for (int i = arg->oh_s; i < arg->oh_e; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
+                    int32_t acc = 0;
+                    __m256i r_av = _mm256_setzero_si256();
+                    for (int di = 0; di < kh; ++di) {
+                        for (int dj = 0; dj < kw; ++dj) {
+                            int i_idx = b * (ih * iw * ic)
+                                    + (i + di) * (iw * ic)
+                                    + (j + dj) * ic;
+                            int k_idx = di * (kw * od * ic)
+                                    + dj * (od * ic)
+                                    + d * ic;
+                            int c = 0;
+                            for (c = 0; c <= ic - 8; c += 8) {
+                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
+                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
+                                __m256i mu_av = _mm256_mullo_epi32(in_av, k_av);
+                                r_av = _mm256_add_epi32(r_av, mu_av);
+                            }
+                            if (c < ic) {
+                                for (; c < ic; ++c) {
+                                    acc += padded_val_ptr[i_idx + c]
+                                           * ker_val_ptr[k_idx + c];
+                                }
+                            }
+                        }
+                    }
+                    int32_t* r_av_ptr = (int32_t*)&r_av;
+                    for (int avi = 0; avi < 8; ++avi) {
+                        acc += r_av_ptr[avi];
+                    }
+                    out_val_ptr[
+                        b * (oh * ow * od)
+                        + i * (ow * od)
+                        + j * od
+                        + d
+                    ] = acc;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 void* threadFuncFloat(void* thread_arg)
 {
     ThreadArg<float>* arg = (ThreadArg<float>*) thread_arg;
@@ -340,14 +474,15 @@ void* threadFuncFloat(void* thread_arg)
     return 0;
 }
 
+template <typename T>
 void doConv2Dpthread(
         int mode,
         int oh,
-        Tensor<float>& padded_tensor, Tensor<float>& ker_tensor, Tensor<float>& out_tensor)
+        Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
     clock_t start_c = clock();
     pthread_t threads[P_THREADS];
-    ThreadArg<float> t_args[P_THREADS];
+    ThreadArg<T> t_args[P_THREADS];
 
     int num_threads = min(P_THREADS, oh);
     int oh_part_size = oh / num_threads;
@@ -369,6 +504,10 @@ void doConv2Dpthread(
         t_args[t_idx].oh_e = oh_e;
         if (mode == 0) {
             t_id = pthread_create(&threads[t_idx], NULL, threadFuncFloat, (void*) &t_args[t_idx]);
+        } else if (mode == 32) {
+            t_id = pthread_create(&threads[t_idx], NULL, threadFuncInt32, (void*) &t_args[t_idx]);
+        } else if (mode == 16) {
+            t_id = pthread_create(&threads[t_idx], NULL, threadFuncInt16, (void*) &t_args[t_idx]);
         }
         if (t_id < 0) {
             perror("pthread error");
