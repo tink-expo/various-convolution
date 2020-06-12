@@ -9,7 +9,7 @@ import random
 import io
 
 prob_num = 4
-ans_num = 3
+ans_num = 4
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -73,17 +73,16 @@ def cmp_all():
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-        os.system('{} {} {} {} {} {} {}'.format(
-                conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3], 'pt'))
+        if prob_num == 4:
+            os.system('{} {} {}'.format(conv, in_bin, ker_bin))
+        else:
+            os.system('{} {} {} {} {} {} {}'.format(
+                    conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3], 'pt'))
 
         ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_num)
         _, ans = read_file(ans_bin)
         # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
-        # print(ans[0, 3, 3, 0])
-        # print(oup[0, 3, 3, 0])
-        # print(ans[0,0,:5,:5])
-        # print(oup[0,0,:5,:5])
 
         print('AVG: {}'.format(abs(ans).mean()))
         print('DIFF: {}'.format(abs(oup - ans).mean()))
