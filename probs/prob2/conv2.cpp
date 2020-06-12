@@ -31,7 +31,7 @@ void writeFile(const char* fname, const Tensor<float>& tensor)
             sizeof(float) * tensor.val.size());
 }
 
-bool readFile(const string& fname, Tensor<float>& tensor)
+bool readFile(const char* fname, Tensor<float>& tensor)
 {
     ifstream ifs(fname, ios::binary);
     if (!ifs.is_open()) {
@@ -46,64 +46,6 @@ bool readFile(const string& fname, Tensor<float>& tensor)
     tensor.val.assign((fsize - 16) / sizeof(float), 0);
     ifs.read((char*) tensor.valPtr(), fsize - 16);
     return true;
-}
-
-template<typename T>
-float getMaxS()
-{
-    if (sizeof(T) == sizeof(int32_t)) {
-        return (float) 1e+9;
-    } else if (sizeof(T) == sizeof(int16_t)) {
-        return (float) 1e+4;
-    } else if (sizeof(T) == sizeof(int8_t)) {
-        return (float) 1e+2;
-    }
-    
-    assert(0);
-}
-
-float getMaxAbs(const Tensor<float>& tensor)
-{
-    float ret = 0.0f;
-    for (float v : tensor.val) {
-        ret = max(ret, abs(v));
-    }
-    return ret;
-}
-
-template<typename T>
-T getSS(const Tensor<float>& in_tensor, const Tensor<float>& ker_tensor)
-{
-    float in_max = getMaxAbs(in_tensor);
-    float ker_max = getMaxAbs(ker_tensor);
-    // kh * kw * ic
-    cout << in_max << " " << ker_max << endl;
-    cout << ker_tensor.dim[0] << " " << ker_tensor.dim[1] << " " << ker_tensor.dim[3] << endl;
-    float mult_max = in_max * ker_max * ker_tensor.dim[0] * ker_tensor.dim[1] * ker_tensor.dim[3];
-
-    float s_max = getMaxS<T>();
-    float t_max = numeric_limits<T>::max();
-    cout << s_max << endl;
-    if (in_max > 1.0f) {
-        cout << in_max << " " << s_max << endl;
-        s_max = min(s_max, t_max / in_max);
-    }
-    if (ker_max > 1.0f) {
-        cout << ker_max << " " << s_max << endl;
-        s_max = min(s_max, t_max / ker_max);
-    }
-    if (mult_max > 1.0f) {
-        cout << mult_max << " " << s_max << endl;
-        s_max = min(s_max, sqrt(t_max / mult_max));
-    }
-    cout << (int) (T) s_max << endl;
-    return (T) s_max;
-}
-
-template<typename T>
-float getS()
-{
-    return 1000.0f;
 }
 
 void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int* pad_back)
@@ -129,7 +71,11 @@ Tensor<T> getQuantized(float s_val, Tensor<float>& in_tensor)
     quan_in_tensor.val.assign(in_tensor.val.size(), 0);
     for (size_t i = 0; i < in_tensor.val.size(); ++i) {
         quan_in_tensor.val[i] = (T) min(max_val, max(min_val, in_tensor.val[i] * s_val));
+        if (i < 10) {
+            cout << in_tensor.val[i] << " " << quan_in_tensor.val[i] << "| ";
+        }
     }
+    cout << endl;
     return quan_in_tensor;
 }
 
@@ -187,6 +133,9 @@ void doConv2D(
         int oh, int ow,
         Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
+    // cout << batch << " " << ih << " " << iw << " " << ic << " " << kh << " " << kw << " " << od << " " << oh << " " << oh << " " << ow <<
+    //         out_tensor.val.size() << " " << padded_tensor.val.size() << " " << ker_tensor.val.size() << endl;
+    
     clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
         for (int d = 0; d < od; ++d) {
@@ -211,6 +160,16 @@ void doConv2D(
                                     + d * ic
                                     + c
                                 ];
+
+
+                                // if (i == 2 && j == 2 && c == 0 && di == 0 && dj == 0) {
+                                //     cout << (int) out_tensor.val[
+                                //         b * (oh * ow * od)
+                                //         + i * (ow * od)
+                                //         + j * od
+                                //         + d
+                                //     ] << endl;
+                                // }
                                 
                             }
                         }
@@ -342,26 +301,6 @@ Tensor<float> quanConv2D(float s_val, Tensor<float>& in_tensor, Tensor<float>& k
     return getDequantized(s_val, out_tensor);
 }
 
-template<typename T>
-bool conv2DWrapper(bool quant, const string& in_fname, const string& ker_fname)
-{
-    Tensor<float> in_tensor;
-    Tensor<float> ker_tensor;
-
-    if (!readFile(in_fname, in_tensor) || !readFile(ker_fname, ker_tensor)) {
-        return false;
-    }
-
-    constexpr char out_fname[] = "output_tensor.bin";
-    if (quant) {
-        float s_val = getS<T>();
-        writeFile(out_fname, quanConv2D<T>(s_val, in_tensor, ker_tensor));
-    } else {
-        writeFile(out_fname, conv2D(in_tensor, ker_tensor));
-    }
-    return true;
-}
-
 
 int main(int argc, char* argv[])
 {
@@ -369,21 +308,27 @@ int main(int argc, char* argv[])
         cout << "Invalid args." << endl;
         return 0;
     }
-    int mode = argc >= 4 ? atoi(argv[3]) : 0;
+    int mode = atoi(argv[3]);
+    float s_val = argc >= 5 ? atof(argv[4]) : 0.0f;
 
-    bool success = false;
-    if (mode == 0) {
-        success = conv2DWrapper<float>(0, argv[1], argv[2]);
-    } else if (mode == 32) {
-        success = conv2DWrapper<int32_t>(4, argv[1], argv[2]);
-    } else if (mode == 16) {
-        success = conv2DWrapper<int16_t>(3, argv[1], argv[2]);
-    } else if (mode == 8) {
-        success = conv2DWrapper<int8_t>(2, argv[1], argv[2]);
-    }
+    Tensor<float> in_tensor;
+    Tensor<float> ker_tensor;
 
-    if (!success) {
+    if (!readFile(argv[1], in_tensor) || !readFile(argv[2], ker_tensor)) {
         cout << "Invalid args." << endl;
         return 0;
+    }
+
+    constexpr char out_fname[] = "output_tensor.bin";
+    if (mode == 0) {
+        writeFile(out_fname, conv2D(in_tensor, ker_tensor));
+    } else if (mode == 32) {
+        writeFile(out_fname, quanConv2D<int32_t>(s_val, in_tensor, ker_tensor));
+    } else if (mode == 16) {
+        writeFile(out_fname, quanConv2D<int16_t>(s_val, in_tensor, ker_tensor));
+    } else if (mode == 8) {
+        writeFile(out_fname, quanConv2D<int8_t>(s_val, in_tensor, ker_tensor));
+    } else {
+        cout << "Invalid args." << endl;
     }
 }
