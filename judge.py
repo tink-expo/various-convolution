@@ -72,7 +72,7 @@ def cmp_all():
         os.system('{} {} {} {} {} {}'.format(
                 conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3]))
 
-        ans_bin = '{}/group2/ans/o{}.bin'.format(pwd, i)
+        ans_bin = '{}/group2/{}/o3.bin'.format(pwd, i)
         _, ans = read_file(ans_bin)
         # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
@@ -102,12 +102,12 @@ def quan_i(s, dt):
     _, ker = read_file(ker_bin)
     quan(ker, s, dt)
 
-SEND = 100
+SEND = 10
 
 def eval_error(mode, answers, vector, vec_idx, vec_val):
     pwd = os.getcwd()
     out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob2/convolution'.format(pwd)
+    conv = '{}/probs/prob3/convolution'.format(pwd)
     errors = []
     vec_org = vector[vec_idx]
     vector[vec_idx] = vec_val
@@ -153,13 +153,14 @@ def avm_search(mode):
     pwd = os.getcwd()
     answers = {}
     for i in range(1, 4):
-        ans_bin = '{}/group2/ans/o{}.bin'.format(pwd, i)
+        ans_bin = '{}/group2/{}/o3.bin'.format(pwd, i)
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
-    for i in range(10):
+    for i in range(1):
         fit = 100
-        vec = [random.choice([-1, 1]) * random.random(), random.randint(20, 200)]
+        # vec = [random.choice([-1, 1]) * random.random(), random.randint(20, 200)]
+        vec = [0.222, 70.0]
         for j in range(4):
             vec_idx = j % 2
             new_vec, new_fit = variable_search(mode, answers, vec, vec_idx)
@@ -182,8 +183,8 @@ def avm_search(mode):
 #     print(s, fit)
 # cmp_all()
 if __name__=="__main__":
-    # avm_search(sys.argv[1])
-    cmp_all()
+    avm_search(sys.argv[1])
+    # cmp_all()
         
 
 

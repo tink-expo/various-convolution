@@ -92,6 +92,63 @@ void doConv2D(
         int batch, int ih, int iw, int ic, 
         int kh, int kw, int od,
         int oh, int ow,
+        Tensor<int16_t>& padded_tensor, Tensor<int16_t>& ker_tensor, Tensor<int16_t>& out_tensor)
+{
+    clock_t start_c = clock();
+    int16_t* padded_val_ptr = (int16_t*) padded_tensor.valPtr();
+    int16_t* ker_val_ptr = (int16_t*) ker_tensor.valPtr();
+    int16_t* out_val_ptr = (int16_t*) out_tensor.valPtr();
+
+    for (int b = 0; b < batch; ++b) {
+        for (int d = 0; d < od; ++d) {
+            for (int i = 0; i < oh; ++i) {
+                for (int j = 0; j < ow; ++j) {
+                    int16_t acc = 0;
+                    __m256i r_av = _mm256_setzero_si256();
+                    for (int di = 0; di < kh; ++di) {
+                        for (int dj = 0; dj < kw; ++dj) {
+                            int i_idx = b * (ih * iw * ic)
+                                    + (i + di) * (iw * ic)
+                                    + (j + dj) * ic;
+                            int k_idx = di * (kw * od * ic)
+                                    + dj * (od * ic)
+                                    + d * ic;
+                            int c = 0;
+                            for (c = 0; c <= ic - 16; c += 16) {
+                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
+                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
+                                __m256i mu_av = _mm256_mullo_epi16(in_av, k_av);
+                                r_av = _mm256_adds_epi16(r_av, mu_av);
+                            }
+                            if (c < ic) {
+                                for (; c < ic; ++c) {
+                                    acc += padded_val_ptr[i_idx + c]
+                                           * ker_val_ptr[k_idx + c];
+                                }
+                            }
+                        }
+                    }
+                    int16_t* r_av_ptr = (int16_t*)&r_av;
+                    for (int avi = 0; avi < 16; ++avi) {
+                        acc += r_av_ptr[avi];
+                    }
+                    out_val_ptr[
+                        b * (oh * ow * od)
+                        + i * (ow * od)
+                        + j * od
+                        + d
+                    ] = acc;
+                }
+            }
+        }
+    }
+    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+}
+
+void doConv2D(
+        int batch, int ih, int iw, int ic, 
+        int kh, int kw, int od,
+        int oh, int ow,
         Tensor<int32_t>& padded_tensor, Tensor<int32_t>& ker_tensor, Tensor<int32_t>& out_tensor)
 {
     clock_t start_c = clock();
@@ -128,7 +185,7 @@ void doConv2D(
                             }
                         }
                     }
-                    int* r_av_ptr = (int32_t*)&r_av;
+                    int32_t* r_av_ptr = (int32_t*)&r_av;
                     for (int avi = 0; avi < 8; ++avi) {
                         acc += r_av_ptr[avi];
                     }
@@ -143,15 +200,6 @@ void doConv2D(
         }
     }
     cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
-}
-
-void doConv2D(
-        int batch, int ih, int iw, int ic, 
-        int kh, int kw, int od,
-        int oh, int ow,
-        Tensor<int16_t>& padded_tensor, Tensor<int16_t>& ker_tensor, Tensor<int16_t>& out_tensor)
-{
-    
 }
 
 void doConv2D(
