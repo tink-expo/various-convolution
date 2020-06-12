@@ -88,12 +88,77 @@ Tensor<float> getDequantized(float s_val, Tensor<T>& quan_out_tensor)
     return fin_out_tensor;
 }
 
-template<typename T>
 void doConv2D(
         int batch, int ih, int iw, int ic, 
         int kh, int kw, int od,
         int oh, int ow,
-        Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
+        Tensor<int32_t>& padded_tensor, Tensor<int32_t>& ker_tensor, Tensor<int32_t>& out_tensor)
+{
+    clock_t start_c = clock();
+    int32_t* padded_val_ptr = (int32_t*) padded_tensor.valPtr();
+    int32_t* ker_val_ptr = (int32_t*) ker_tensor.valPtr();
+    int32_t* out_val_ptr = (int32_t*) out_tensor.valPtr();
+
+    for (int b = 0; b < batch; ++b) {
+        for (int d = 0; d < od; ++d) {
+            for (int i = 0; i < oh; ++i) {
+                for (int j = 0; j < ow; ++j) {
+                    int32_t acc = 0;
+                    __m256i r_av = _mm256_setzero_si256();
+                    for (int di = 0; di < kh; ++di) {
+                        for (int dj = 0; dj < kw; ++dj) {
+                            int i_idx = b * (ih * iw * ic)
+                                    + (i + di) * (iw * ic)
+                                    + (j + dj) * ic;
+                            int k_idx = di * (kw * od * ic)
+                                    + dj * (od * ic)
+                                    + d * ic;
+                            int c = 0;
+                            for (c = 0; c <= ic - 8; c += 8) {
+                                __m256i in_av = _mm256_loadu_si256((__m256i*) (padded_val_ptr + i_idx + c));
+                                __m256i k_av = _mm256_loadu_si256((__m256i*) (ker_val_ptr + k_idx + c));
+                                __m256i mu_av = _mm256_mullo_epi32(in_av, k_av);
+                                r_av = _mm256_add_epi32(r_av, mu_av);
+                            }
+                            if (c < ic) {
+                                for (; c < ic; ++c) {
+                                    acc += padded_val_ptr[i_idx + c]
+                                           * ker_val_ptr[k_idx + c];
+                                }
+                            }
+                        }
+                    }
+                    int* r_av_ptr = (int32_t*)&r_av;
+                    for (int avi = 0; avi < 8; ++avi) {
+                        acc += r_av_ptr[avi];
+                    }
+                    out_val_ptr[
+                        b * (oh * ow * od)
+                        + i * (ow * od)
+                        + j * od
+                        + d
+                    ] = acc;
+                }
+            }
+        }
+    }
+    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+}
+
+void doConv2D(
+        int batch, int ih, int iw, int ic, 
+        int kh, int kw, int od,
+        int oh, int ow,
+        Tensor<int16_t>& padded_tensor, Tensor<int16_t>& ker_tensor, Tensor<int16_t>& out_tensor)
+{
+    
+}
+
+void doConv2D(
+        int batch, int ih, int iw, int ic, 
+        int kh, int kw, int od,
+        int oh, int ow,
+        Tensor<float>& padded_tensor, Tensor<float>& ker_tensor, Tensor<float>& out_tensor)
 {
     clock_t start_c = clock();
     float* padded_val_ptr = (float*) padded_tensor.valPtr();
@@ -103,7 +168,7 @@ void doConv2D(
         for (int d = 0; d < od; ++d) {
             for (int i = 0; i < oh; ++i) {
                 for (int j = 0; j < ow; ++j) {
-                    T acc = 0;
+                    float acc = 0;
                     __m256 r_av = _mm256_setzero_ps();
                     for (int di = 0; di < kh; ++di) {
                         for (int dj = 0; dj < kw; ++dj) {
@@ -128,8 +193,9 @@ void doConv2D(
                             }
                         }
                     }
+                    float* r_av_ptr = (float*)&r_av;
                     for (int avi = 0; avi < 8; ++avi) {
-                        acc += *(float*)&r_av[avi];
+                        acc += r_av_ptr[avi];
                     }
                     out_val_ptr[
                         b * (oh * ow * od)
@@ -212,7 +278,7 @@ Tensor<float> conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
             iw, pad_left,
             in_tensor);
     
-    doConv2D<float>(
+    doConv2D(
             batch, ih, iw, ic, kh, kw, od, oh, ow,
             padded_tensor, ker_tensor, out_tensor);
     return out_tensor;
@@ -257,7 +323,7 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
     out_tensor.dim[3] = od;
     out_tensor.val.assign(batch * oh * ow * od, 0);
 
-    doConv2D<T>(
+    doConv2D(
             batch, ih, iw, ic, kh, kw, od, oh, ow,
             padded_tensor, quan_ker_tensor, out_tensor);
 
@@ -290,8 +356,6 @@ int main(int argc, char* argv[])
         writeFile(out_fname, quanConv2D<int32_t>(s_in, s_ker, in_tensor, ker_tensor));
     } else if (mode == 16) {
         writeFile(out_fname, quanConv2D<int16_t>(s_in, s_ker, in_tensor, ker_tensor));
-    } else if (mode == 8) {
-        writeFile(out_fname, quanConv2D<int8_t>(s_in, s_ker, in_tensor, ker_tensor));
     } else {
         cout << "Invalid args." << endl;
     }
