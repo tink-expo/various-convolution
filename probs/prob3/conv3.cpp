@@ -9,8 +9,12 @@
 #include <ctime>
 #include <array>
 #include <limits>
+#include <pthread.h>
+#include <immintrin.h>
 
 using namespace std;
+
+constexpr size_t P_THREADS = 4;
 
 template <typename T> 
 struct Tensor {
@@ -63,14 +67,10 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
 template<typename T>
 Tensor<T> getQuantized(float s_val, Tensor<float>& in_tensor)
 {
-    // float min_val = (float) numeric_limits<T>::min();
-    // float max_val = (float) numeric_limits<T>::max();
-    
     Tensor<T> quan_in_tensor;
     quan_in_tensor.dim = in_tensor.dim;
     quan_in_tensor.val.assign(in_tensor.val.size(), 0);
     for (size_t i = 0; i < in_tensor.val.size(); ++i) {
-        //quan_in_tensor.val[i] = (T) min(max_val, max(min_val, in_tensor.val[i] * s_val));
         quan_in_tensor.val[i] = (T) (in_tensor.val[i] * s_val);
     }
     return quan_in_tensor;
@@ -95,48 +95,43 @@ void doConv2D(
         int oh, int ow,
         Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
-    // int32_t min_val = (int32_t) numeric_limits<T>::min();
-    // int32_t max_val = (int32_t) numeric_limits<T>::max();
-    
-    // clock_t start_c = clock();
+    clock_t start_c = clock();
+    float* padded_val_ptr = (float*) padded_tensor.valPtr();
+    float* ker_val_ptr = (float*) ker_tensor.valPtr();
+    float* out_val_ptr = (float*) out_tensor.valPtr();
     for (int b = 0; b < batch; ++b) {
         for (int d = 0; d < od; ++d) {
             for (int i = 0; i < oh; ++i) {
                 for (int j = 0; j < ow; ++j) {
                     T acc = 0;
-                    for (int c = 0; c < ic; ++c) {
-                        for (int di = 0; di < kh; ++di) {
-                            for (int dj = 0; dj < kw; ++dj) {
-                                acc += padded_tensor.val[
-                                    b * (ih * iw * ic)
+                    __m256 r_av = _mm256_setzero_ps();
+                    for (int di = 0; di < kh; ++di) {
+                        for (int dj = 0; dj < kw; ++dj) {
+                            int i_idx = b * (ih * iw * ic)
                                     + (i + di) * (iw * ic)
-                                    + (j + dj) * ic
-                                    + c
-                                ] * ker_tensor.val[
-                                    di * (kw * od * ic)
+                                    + (j + dj) * ic;
+                            int k_idx = di * (kw * od * ic)
                                     + dj * (od * ic)
-                                    + d * ic
-                                    + c
-                                ];
-                                // if (i == 3 && j == 3 && d == 0) {
-                                //     cout << padded_tensor.val[
-                                //         b * (ih * iw * ic)
-                                //         + (i + di) * (iw * ic)
-                                //         + (j + dj) * ic
-                                //         + c
-                                //     ] << " " <<
-                                //     ker_tensor.val[
-                                //         di * (kw * od * ic)
-                                //         + dj * (od * ic)
-                                //         + d * ic
-                                //         + c
-                                //     ] << " " <<
-                                //     acc << endl;
-                                // }
+                                    + d * ic;
+                            int c = 0;
+                            for (c = 0; c <= ic - 8; c += 8) {
+                                __m256 in_av = _mm256_loadu_ps(padded_val_ptr + i_idx + c);
+                                __m256 k_av = _mm256_loadu_ps(ker_val_ptr + k_idx + c);
+                                __m256 mu_av = _mm256_mul_ps(in_av, k_av);
+                                r_av = _mm256_add_ps(r_av, mu_av);
+                            }
+                            if (c < ic) {
+                                for (; c < ic; ++c) {
+                                    acc += padded_val_ptr[i_idx + c]
+                                           * ker_val_ptr[k_idx + c];
+                                }
                             }
                         }
                     }
-                    out_tensor.val[
+                    for (int avi = 0; avi < 8; ++avi) {
+                        acc += *(float*)&r_av[avi];
+                    }
+                    out_val_ptr[
                         b * (oh * ow * od)
                         + i * (ow * od)
                         + j * od
@@ -146,8 +141,7 @@ void doConv2D(
             }
         }
     }
-    // cout << "<>" << endl;
-    //cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
 }
 
 Tensor<float> getPadded(
@@ -273,7 +267,7 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
 
 int main(int argc, char* argv[])
 {
-    if (argc < 3) {
+    if (argc < 6) {
         cout << "Invalid args." << endl;
         return 0;
     }

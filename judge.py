@@ -65,7 +65,7 @@ def cmp_all():
 
     pwd = os.getcwd()
     out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob2/convolution'.format(pwd)
+    conv = '{}/probs/prob3/convolution'.format(pwd)
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
@@ -76,8 +76,8 @@ def cmp_all():
         _, ans = read_file(ans_bin)
         # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
-        print(ans[0, 3, 3, 0])
-        print(oup[0, 3, 3, 0])
+        # print(ans[0, 3, 3, 0])
+        # print(oup[0, 3, 3, 0])
         # print(ans[0,0,:5,:5])
         # print(oup[0,0,:5,:5])
 
@@ -182,7 +182,8 @@ def avm_search(mode):
 #     print(s, fit)
 # cmp_all()
 if __name__=="__main__":
-    avm_search(sys.argv[1])
+    # avm_search(sys.argv[1])
+    cmp_all()
         
 
 

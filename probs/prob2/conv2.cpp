@@ -63,14 +63,10 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
 template<typename T>
 Tensor<T> getQuantized(float s_val, Tensor<float>& in_tensor)
 {
-    // float min_val = (float) numeric_limits<T>::min();
-    // float max_val = (float) numeric_limits<T>::max();
-    
     Tensor<T> quan_in_tensor;
     quan_in_tensor.dim = in_tensor.dim;
     quan_in_tensor.val.assign(in_tensor.val.size(), 0);
     for (size_t i = 0; i < in_tensor.val.size(); ++i) {
-        //quan_in_tensor.val[i] = (T) min(max_val, max(min_val, in_tensor.val[i] * s_val));
         quan_in_tensor.val[i] = (T) (in_tensor.val[i] * s_val);
     }
     return quan_in_tensor;
@@ -88,6 +84,7 @@ Tensor<float> getDequantized(float s_val, Tensor<T>& quan_out_tensor)
     return fin_out_tensor;
 }
 
+// TODO: Try change order of loops to see performance reasonable in type order.
 template<typename T>
 void doConv2D(
         int batch, int ih, int iw, int ic, 
@@ -95,10 +92,7 @@ void doConv2D(
         int oh, int ow,
         Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
-    // int32_t min_val = (int32_t) numeric_limits<T>::min();
-    // int32_t max_val = (int32_t) numeric_limits<T>::max();
-    
-    // clock_t start_c = clock();
+    clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
         for (int d = 0; d < od; ++d) {
             for (int i = 0; i < oh; ++i) {
@@ -118,21 +112,6 @@ void doConv2D(
                                     + d * ic
                                     + c
                                 ];
-                                // if (i == 3 && j == 3 && d == 0) {
-                                //     cout << padded_tensor.val[
-                                //         b * (ih * iw * ic)
-                                //         + (i + di) * (iw * ic)
-                                //         + (j + dj) * ic
-                                //         + c
-                                //     ] << " " <<
-                                //     ker_tensor.val[
-                                //         di * (kw * od * ic)
-                                //         + dj * (od * ic)
-                                //         + d * ic
-                                //         + c
-                                //     ] << " " <<
-                                //     acc << endl;
-                                // }
                             }
                         }
                     }
@@ -146,8 +125,7 @@ void doConv2D(
             }
         }
     }
-    // cout << "<>" << endl;
-    //cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
 }
 
 Tensor<float> getPadded(
