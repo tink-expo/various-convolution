@@ -131,28 +131,46 @@ vector<T> getIm2col(
     int col_h = batch * oh * ow;
     int col_w = ic * kh * kw;
     vector<T> col(col_h * col_w);
-
-    for (int i = 0; i < oh; ++i) {
-        for (int j = 0; j < ow; ++j) {
-            for (int c = 0; c < ic; ++c) {
-                int col_i = i * ow + j;
-                int col_j = c * (kh * kw);
-                for (int di = 0; di < kh; ++di) {
-                    for (int dj = 0; dj < kw; ++dj) {
-                        col[
-                            col_i * col_w +
-                            col_j + (di * kw) + dj
-                        ] = padded_tensor.val[
-                            (i + di) * (iw * ic) +
-                            (j + dj) * ic +
-                            c
-                        ];
+    for (int b = 0;  b < batch; ++b) {
+        for (int i = 0; i < oh; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int c = 0; c < ic; ++c) {
+                    int col_i = i * ow + j;
+                    int col_j = c * (kh * kw);
+                    for (int di = 0; di < kh; ++di) {
+                        for (int dj = 0; dj < kw; ++dj) {
+                            col[
+                                b * (oh * ow * col_w) +
+                                col_i * col_w +
+                                col_j + (di * kw) + dj
+                            ] = padded_tensor.val[
+                                b * (ih * iw * ic) +
+                                (i + di) * (iw * ic) +
+                                (j + dj) * ic +
+                                c
+                            ];
+                        }
                     }
                 }
             }
         }
     }
     return col;
+}
+
+template<typename T>
+__global__ void h_cuda_matmul(T* imcol, T* kernel, T* result, 
+    int m_size, int n_size, int k_size)
+{
+    int i_idx = blockIdx.y * blockDim.y + threadIdx.y;
+    int j_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i_idx < m_size && j_idx < n_size) {
+        T acc = 0;
+        for (int k = 0; k < k_size; ++k) {
+            acc += imcol[i_idx * k_size + k] * kernel[k * n_size + j_idx];
+        }
+        result[i_idx * n_size + j_idx] = acc;
+    }
 }
 
 // TODO: Try change order of loops to see performance reasonable in type order.

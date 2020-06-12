@@ -9,6 +9,7 @@ import random
 import io
 
 prob_num = 4
+ans_num = 3
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -75,7 +76,7 @@ def cmp_all():
         os.system('{} {} {} {} {} {} {}'.format(
                 conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3], 'pt'))
 
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, prob_num)
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_num)
         _, ans = read_file(ans_bin)
         # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
@@ -156,7 +157,7 @@ def avm_search(mode):
     pwd = os.getcwd()
     answers = {}
     for i in range(1, 4):
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, prob_num)
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_num)
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
