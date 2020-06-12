@@ -2,6 +2,6 @@
 **.txt
 *.tar
 __pycache__
-/*.bin
+**output_tensor.bin
 **.out
 /group1/
