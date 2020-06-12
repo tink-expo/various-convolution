@@ -11,6 +11,7 @@
 #include <limits>
 
 using namespace std;
+bool arg_print_time = false;
 
 template <typename T> 
 struct Tensor {
@@ -94,9 +95,9 @@ void doConv2D(
 {
     clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
-        for (int d = 0; d < od; ++d) {
-            for (int i = 0; i < oh; ++i) {
-                for (int j = 0; j < ow; ++j) {
+        for (int i = 0; i < oh; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
                     T acc = 0;
                     for (int c = 0; c < ic; ++c) {
                         for (int di = 0; di < kh; ++di) {
@@ -125,7 +126,9 @@ void doConv2D(
             }
         }
     }
-    cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    if (arg_print_time) {
+        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    }
 }
 
 Tensor<float> getPadded(
@@ -251,10 +254,14 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
 
 int main(int argc, char* argv[])
 {
-    if (argc < 3) {
+    if (argc < 6) {
         cout << "Invalid args." << endl;
         return 0;
     }
+    if (argc >= 7 && string(argv[6]) == "pt") {
+        arg_print_time = true;
+    }
+
     int mode = atoi(argv[3]);
     float s_in = atof(argv[4]);
     float s_ker = atof(argv[5]);

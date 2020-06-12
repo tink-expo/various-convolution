@@ -11,6 +11,8 @@
 
 using namespace std;
 
+bool arg_print_time = false;
+
 struct Tensor {
     array<int, 4> dim;
     vector<float> val;
@@ -130,9 +132,9 @@ clock_t conv2D(Tensor& in_tensor, Tensor& ker_tensor, Tensor& out_tensor)
 
     clock_t start_c = clock();
     for (int b = 0; b < batch; ++b) {
-        for (int d = 0; d < od; ++d) {
-            for (int i = 0; i < oh; ++i) {
-                for (int j = 0; j < ow; ++j) {
+        for (int i = 0; i < oh; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
                     for (int c = 0; c < ic; ++c) {
                         for (int di = 0; di < kh; ++di) {
                             for (int dj = 0; dj < kw; ++dj) {
@@ -161,8 +163,13 @@ int main(int argc, char* argv[])
         cout << "Invalid args." << endl;
         return 0;
     }
+    if (argc >= 4 && string(argv[3]) == "pt") {
+        arg_print_time = true;
+    }
 
     clock_t elasped = conv2D(in_tensor, ker_tensor, out_tensor);
-    cout << (double) elasped / CLOCKS_PER_SEC << endl;
+    if (arg_print_time) {
+        cout << (double) elasped / CLOCKS_PER_SEC << endl;
+    }
     writeFile("output_tensor.bin", out_tensor);
 }

@@ -14,7 +14,7 @@
 
 using namespace std;
 
-constexpr size_t P_THREADS = 4;
+constexpr int P_THREADS = 4;
 bool arg_print_time = false;
 
 template <typename T> 
@@ -26,6 +26,16 @@ struct Tensor {
     {
         return const_cast<T*>(val.data());
     }
+};
+
+template <typename T>
+struct ThreadArg {
+    Tensor<T>* padded_tensor;
+    Tensor<T>* ker_tensor;
+    Tensor<T>* out_tensor;
+    
+    int oh_s;
+    int oh_e;
 };
 
 void writeFile(const char* fname, const Tensor<float>& tensor)
@@ -101,9 +111,9 @@ void doConv2D(
     int16_t* out_val_ptr = (int16_t*) out_tensor.valPtr();
 
     for (int b = 0; b < batch; ++b) {
-        for (int d = 0; d < od; ++d) {
-            for (int i = 0; i < oh; ++i) {
-                for (int j = 0; j < ow; ++j) {
+        for (int i = 0; i < oh; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
                     int16_t acc = 0;
                     __m256i r_av = _mm256_setzero_si256();
                     for (int di = 0; di < kh; ++di) {
@@ -160,9 +170,9 @@ void doConv2D(
     int32_t* out_val_ptr = (int32_t*) out_tensor.valPtr();
 
     for (int b = 0; b < batch; ++b) {
-        for (int d = 0; d < od; ++d) {
-            for (int i = 0; i < oh; ++i) {
-                for (int j = 0; j < ow; ++j) {
+        for (int i = 0; i < oh; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
                     int32_t acc = 0;
                     __m256i r_av = _mm256_setzero_si256();
                     for (int di = 0; di < kh; ++di) {
@@ -218,9 +228,9 @@ void doConv2D(
     float* ker_val_ptr = (float*) ker_tensor.valPtr();
     float* out_val_ptr = (float*) out_tensor.valPtr();
     for (int b = 0; b < batch; ++b) {
-        for (int d = 0; d < od; ++d) {
-            for (int i = 0; i < oh; ++i) {
-                for (int j = 0; j < ow; ++j) {
+        for (int i = 0; i < oh; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
                     float acc = 0;
                     __m256 r_av = _mm256_setzero_ps();
                     for (int di = 0; di < kh; ++di) {
@@ -265,6 +275,116 @@ void doConv2D(
     }
 }
 
+void* threadFuncFloat(void* thread_arg)
+{
+    ThreadArg<float>* arg = (ThreadArg<float>*) thread_arg;
+
+    int batch = arg->padded_tensor->dim[0];
+    int ih = arg->padded_tensor->dim[1];
+    int iw = arg->padded_tensor->dim[2];
+    int ic = arg->padded_tensor->dim[3];
+    int kh = arg->ker_tensor->dim[0];
+    int kw = arg->ker_tensor->dim[1];
+    int od = arg->ker_tensor->dim[2];
+    int oh = arg->out_tensor->dim[1];
+    int ow = arg->out_tensor->dim[2];
+
+    float* padded_val_ptr = (float*) arg->padded_tensor->valPtr();
+    float* ker_val_ptr = (float*) arg->ker_tensor->valPtr();
+    float* out_val_ptr = (float*) arg->out_tensor->valPtr();
+
+    for (int b = 0; b < batch; ++b) {
+        for (int i = arg->oh_s; i < arg->oh_e; ++i) {
+            for (int j = 0; j < ow; ++j) {
+                for (int d = 0; d < od; ++d) {
+                    float acc = 0;
+                    __m256 r_av = _mm256_setzero_ps();
+                    for (int di = 0; di < kh; ++di) {
+                        for (int dj = 0; dj < kw; ++dj) {
+                            int i_idx = b * (ih * iw * ic)
+                                    + (i + di) * (iw * ic)
+                                    + (j + dj) * ic;
+                            int k_idx = di * (kw * od * ic)
+                                    + dj * (od * ic)
+                                    + d * ic;
+                            int c = 0;
+                            for (c = 0; c <= ic - 8; c += 8) {
+                                __m256 in_av = _mm256_loadu_ps(padded_val_ptr + i_idx + c);
+                                __m256 k_av = _mm256_loadu_ps(ker_val_ptr + k_idx + c);
+                                __m256 mu_av = _mm256_mul_ps(in_av, k_av);
+                                r_av = _mm256_add_ps(r_av, mu_av);
+                            }
+                            if (c < ic) {
+                                for (; c < ic; ++c) {
+                                    acc += padded_val_ptr[i_idx + c]
+                                           * ker_val_ptr[k_idx + c];
+                                }
+                            }
+                        }
+                    }
+                    float* r_av_ptr = (float*)&r_av;
+                    for (int avi = 0; avi < 8; ++avi) {
+                        acc += r_av_ptr[avi];
+                    }
+                    out_val_ptr[
+                        b * (oh * ow * od)
+                        + i * (ow * od)
+                        + j * od
+                        + d
+                    ] = acc;
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
+void doConv2Dpthread(
+        int mode,
+        int oh,
+        Tensor<float>& padded_tensor, Tensor<float>& ker_tensor, Tensor<float>& out_tensor)
+{
+    clock_t start_c = clock();
+    pthread_t threads[P_THREADS];
+    ThreadArg<float> t_args[P_THREADS];
+
+    int num_threads = min(P_THREADS, oh);
+    int oh_part_size = oh / num_threads;
+
+    t_args[0].padded_tensor = &padded_tensor;
+    t_args[0].ker_tensor = &ker_tensor;
+    t_args[0].out_tensor = &out_tensor;
+
+    int t_id = -1;
+    for (int t_idx = 0; t_idx < num_threads; ++t_idx) {
+        if (t_idx > 0) {
+            t_args[t_idx] = t_args[0];
+        }
+
+        int oh_s = oh_part_size * t_idx;
+        int oh_e = t_idx < num_threads - 1 ? oh_s + oh_part_size : oh;
+
+        t_args[t_idx].oh_s = oh_s;
+        t_args[t_idx].oh_e = oh_e;
+        if (mode == 0) {
+            t_id = pthread_create(&threads[t_idx], NULL, threadFuncFloat, (void*) &t_args[t_idx]);
+        }
+        if (t_id < 0) {
+            perror("pthread error");
+            exit(0);
+        }
+    }
+
+    for (int t_idx = 0; t_idx < num_threads; ++t_idx) {
+        pthread_join(threads[t_idx], NULL);
+    }
+
+    if (arg_print_time) {
+        cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
+    }
+}
+
 Tensor<float> getPadded(
         int ih, int pad_top,
         int iw, int pad_left,
@@ -297,12 +417,12 @@ Tensor<float> getPadded(
     return padded_tensor;
 }
 
-Tensor<float> conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+Tensor<float> conv2D(int mode, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
     int np_iw = in_tensor.dim[2];
-    int ic = in_tensor.dim[3];
+    // int ic = in_tensor.dim[3];
 
     int kh = ker_tensor.dim[0];
     int kw = ker_tensor.dim[1];
@@ -333,14 +453,14 @@ Tensor<float> conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
             iw, pad_left,
             in_tensor);
     
-    doConv2D(
-            batch, ih, iw, ic, kh, kw, od, oh, ow,
+    doConv2Dpthread(
+            mode, oh,
             padded_tensor, ker_tensor, out_tensor);
     return out_tensor;
 }
 
 template <typename T>
-Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+Tensor<float> quanConv2D(int mode, float s_in, float s_ker, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
@@ -409,11 +529,11 @@ int main(int argc, char* argv[])
 
     constexpr char out_fname[] = "output_tensor.bin";
     if (mode == 0) {
-        writeFile(out_fname, conv2D(in_tensor, ker_tensor));
+        writeFile(out_fname, conv2D(mode, in_tensor, ker_tensor));
     } else if (mode == 32) {
-        writeFile(out_fname, quanConv2D<int32_t>(s_in, s_ker, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int32_t>(mode, s_in, s_ker, in_tensor, ker_tensor));
     } else if (mode == 16) {
-        writeFile(out_fname, quanConv2D<int16_t>(s_in, s_ker, in_tensor, ker_tensor));
+        writeFile(out_fname, quanConv2D<int16_t>(mode, s_in, s_ker, in_tensor, ker_tensor));
     } else {
         cout << "Invalid args." << endl;
     }
