@@ -7,9 +7,7 @@ import tensorflow.keras.backend as K
 import copy
 import random
 import io
-
-prob_num = 1
-ans_num = 3
+import subprocess
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -65,11 +63,10 @@ def NRMSE(x, y):
     denom = y.max() - y.min()
     return numer / denom
 
-def cmp_all():
-
+def cmp_all(prob_no, ans_no):
     pwd = os.getcwd()
     out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_num)
+    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
@@ -85,9 +82,9 @@ def cmp_all():
         print(cmd)
         os.system(cmd)
 
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_num)
-        # _, ans = read_file(ans_bin)  # Judge with mine
-        ans = shift_ans(in_bin, ker_bin)  # Judge with keras
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
+        _, ans = read_file(ans_bin)  # Judge with mine
+        # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
 
         print('AVG: {}'.format(abs(ans).mean()))
@@ -95,28 +92,12 @@ def cmp_all():
         print('NRMSE: {}'.format(NRMSE(oup, ans)))
         print()
 
-def quan(arr, s, dt):
-    q = np.array(arr * s, dtype=dt)
-    print(arr[0, 0, :4, :4])
-    print()
-    print(q[0, 0, :4, :4])
-
-def quan_i(s, dt):
-    pwd = os.getcwd()
-    i = 1
-    in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
-    ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-    _, inp = read_file(in_bin)
-    quan(inp, s, dt)
-    _, ker = read_file(ker_bin)
-    quan(ker, s, dt)
-
 SEND = 10
 
-def eval_error(mode, answers, vector, vec_idx, vec_val):
+def eval_error(prob_no, mode, answers, vector, vec_idx, vec_val):
     pwd = os.getcwd()
     out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_num)
+    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
     errors = []
     vec_org = vector[vec_idx]
     vector[vec_idx] = vec_val
@@ -159,11 +140,11 @@ def variable_search(mode, answers, ini_vec, vec_idx):
     vec[vec_idx] = x
     return [x / SEND for x in vec], fit
 
-def avm_search(mode):
+def avm_search(prob_no, ans_no, mode):
     pwd = os.getcwd()
     answers = {}
     for i in range(1, 4):
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_num)
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
@@ -184,12 +165,38 @@ def avm_search(mode):
 
     print(min_vec, min_fit)
 
-    
+def meas_time(prob_no, mode, runs):
+    res = ''
+    pwd = os.getcwd()
+    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
+
+    for i in range(1, 4):
+        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
+        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+
+        if mode == '0':
+            cmd = '{} {} {} -p'.format(conv, in_bin, ker_bin)
+        else:
+            cmd = '{} {} {} {} -p'.format(
+                    conv, in_bin, ker_bin, mode)
+
+    #     for j in range(runs):
+    #         mtime = subprocess.check_output(cmd, shell=True)
+    #         mtime = mtime.decode('utf-8').strip()
+    #         res += mtime + '\n'
+    #     res += '\n'
+
+    # print(res)
+        print(i)
+        for j in range(runs):
+            os.system(cmd)
+        print()
 
 
 if __name__=="__main__":
     # avm_search(sys.argv[1])
-    cmp_all()
+    # cmp_all()
+    meas_time(4, '0', 10)
         
 
 

@@ -9,9 +9,14 @@
 #include <ctime>
 #include <array>
 #include <limits>
+#include <unistd.h>
 
 using namespace std;
-bool arg_print_time = false;
+
+// Global args.
+bool Arg_print_time = false;
+char* Arg_in_fname;
+char* Arg_ker_fname;
 
 constexpr int CUDA_THREADS_2D = 16;
 
@@ -179,7 +184,6 @@ void conv2Dcuda(
     cudaMemcpy(d_col, col.data(), sizeof(float) * m_size * k_size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_ker, trans_ker.data(), sizeof(float) * k_size * n_size, cudaMemcpyHostToDevice);
     
-    // TODO: Optimize here for Yolov2tiny size
     unsigned int grid_r = (m_size + CUDA_THREADS_2D - 1) / CUDA_THREADS_2D;
     unsigned int grid_c = (n_size + CUDA_THREADS_2D - 1) / CUDA_THREADS_2D;
     dim3 grid_dim(grid_c, grid_r);
@@ -192,7 +196,7 @@ void conv2Dcuda(
     cudaMemcpy(const_cast<float*>(out_tensor.val.data()), d_out, sizeof(float) * m_size * n_size, cudaMemcpyDeviceToHost);
     cudaFree(d_out);
 
-    if (arg_print_time) {
+    if (Arg_print_time) {
         cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
     }
 }
@@ -269,9 +273,30 @@ Tensor conv2D(Tensor& in_tensor, Tensor& ker_tensor)
     return out_tensor;
 }
 
+bool initArgs(int argc, char* argv[]) {
+    Arg_print_time = false;
+
+    int op_c;
+    while ((op_c = getopt(argc, argv, "p")) != -1) {
+        if (op_c == 'p') {
+            Arg_print_time = true;
+        } else {
+            return false;
+        }
+    }
+
+    int op_i = optind;
+    if (op_i + 1 >= argc) {
+        return false;
+    }
+    Arg_in_fname = argv[op_i];
+    Arg_ker_fname = argv[op_i + 1];
+    return true;
+}
+
 int main(int argc, char* argv[])
 {
-    if (argc < 3) {
+    if (!initArgs(argc, argv)) {
         cout << "Invalid args." << endl;
         return 0;
     }
@@ -279,8 +304,8 @@ int main(int argc, char* argv[])
     Tensor in_tensor;
     Tensor ker_tensor;
 
-    if (!readFile(argv[1], in_tensor) || !readFile(argv[2], ker_tensor)) {
-        cout << "Invalid args." << endl;
+    if (!readFile(Arg_in_fname, in_tensor) || !readFile(Arg_ker_fname, ker_tensor)) {
+        cout << "No such file for input_tensor or kernel_tensor." << endl;
         return 0;
     }
 
