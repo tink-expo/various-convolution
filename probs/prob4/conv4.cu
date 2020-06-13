@@ -7,7 +7,7 @@
 #include <cassert>
 #include <algorithm>
 #include <ctime>
-#include <array>
+
 #include <limits>
 #include <unistd.h>
 
@@ -18,15 +18,19 @@ bool Arg_print_time = false;
 char* Arg_in_fname;
 char* Arg_ker_fname;
 
-constexpr int CUDA_THREADS_2D = 16;
+const int CUDA_THREADS_2D = 16;
 
 struct Tensor {
-    array<int, 4> dim;
+    vector<int> dim;
     vector<float> val;
 
     inline float* valPtr()
     {
         return const_cast<float*>(val.data());
+    }
+
+    Tensor() {
+        dim.assign(4, 0);
     }
 };
 
@@ -48,7 +52,7 @@ bool readFile(const char* fname, Tensor& tensor)
     ifs.seekg(0, ios::end);
     size_t fsize = ifs.tellg();
     ifs.seekg(0, ios::beg);
-    
+
     ifs.read((char*) const_cast<int*>(tensor.dim.data()), 16);
     tensor.val.assign((fsize - 16) / sizeof(float), 0);
     ifs.read((char*) tensor.valPtr(), fsize - 16);
@@ -137,14 +141,13 @@ vector<float> getIm2col(
     return col;
 }
 
-template<typename T>
-__global__ void h_cuda_matmul(T* imcol, T* kernel, T* result, 
+__global__ void h_cuda_matmul(float* imcol, float* kernel, float* result, 
     int m_size, int n_size, int k_size)
 {
     int i_idx = blockIdx.y * blockDim.y + threadIdx.y;
     int j_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (i_idx < m_size && j_idx < n_size) {
-        T acc = 0;
+        float acc = 0;
         for (int k = 0; k < k_size; ++k) {
             acc += imcol[i_idx * k_size + k] * kernel[k * n_size + j_idx];
         }
@@ -177,10 +180,11 @@ void conv2Dcuda(
     float* d_col;
     float* d_ker;
     float* d_out;
+    
     cudaMalloc((void **) &d_col, sizeof(float) * m_size * k_size);
     cudaMalloc((void **) &d_ker, sizeof(float) * k_size * n_size);
     cudaMalloc((void **) &d_out, sizeof(float) * m_size * k_size);
-
+    
     cudaMemcpy(d_col, col.data(), sizeof(float) * m_size * k_size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_ker, trans_ker.data(), sizeof(float) * k_size * n_size, cudaMemcpyHostToDevice);
     
@@ -190,6 +194,7 @@ void conv2Dcuda(
     dim3 block_dim(CUDA_THREADS_2D, CUDA_THREADS_2D);
 
     h_cuda_matmul<<<grid_dim, block_dim>>>(d_col, d_ker, d_out, m_size, n_size, k_size);
+    
     cudaFree(d_col);
     cudaFree(d_ker);
 
@@ -309,6 +314,7 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    constexpr char out_fname[] = "output_tensor.bin";
+    cudaFree(0);
+    const char out_fname[] = "output_tensor.bin";
     writeFile(out_fname, conv2D(in_tensor, ker_tensor));
 }

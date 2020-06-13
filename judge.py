@@ -195,8 +195,8 @@ def meas_time(prob_no, mode, runs):
 
 if __name__=="__main__":
     # avm_search(sys.argv[1])
-    # cmp_all()
-    meas_time(4, '0', 10)
+    cmp_all(4, 4)
+    # meas_time(4, '0', 10)
         
 
 
