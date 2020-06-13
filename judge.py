@@ -166,7 +166,6 @@ def avm_search(prob_no, ans_no, mode):
     print(min_vec, min_fit)
 
 def meas_time(prob_no, mode, runs):
-    res = ''
     pwd = os.getcwd()
     conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
 
@@ -179,24 +178,39 @@ def meas_time(prob_no, mode, runs):
         else:
             cmd = '{} {} {} {} -p'.format(
                     conv, in_bin, ker_bin, mode)
-
-    #     for j in range(runs):
-    #         mtime = subprocess.check_output(cmd, shell=True)
-    #         mtime = mtime.decode('utf-8').strip()
-    #         res += mtime + '\n'
-    #     res += '\n'
-
-    # print(res)
         print(i)
         for j in range(runs):
             os.system(cmd)
         print()
 
+def meas_error(prob_no, ans_no, mode):
+    pwd = os.getcwd()
+    out_bin = '{}/output_tensor.bin'.format(pwd)
+    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
+
+    for i in range(1, 4):
+        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
+        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+
+        if mode == '0':
+            cmd = '{} {} {}'.format(conv, in_bin, ker_bin)
+        else:
+            cmd = '{} {} {} {}'.format(
+                    conv, in_bin, ker_bin, mode)
+        os.system(cmd)
+
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
+        _, ans = read_file(ans_bin)  # Judge with mine
+        _, oup = read_file(out_bin)
+        error = NRMSE(oup, ans)
+        print(error, end=' ')
+    print()
 
 if __name__=="__main__":
     # avm_search(sys.argv[1])
-    cmp_all(4, 4)
-    # meas_time(4, '0', 10)
+    cmp_all(2, 1)
+    # meas_time(2, sys.argv[1], 10)
+    # meas_error(2, 1, sys.argv[1])
         
 
 
