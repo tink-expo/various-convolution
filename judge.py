@@ -7,7 +7,6 @@ import tensorflow.keras.backend as K
 import copy
 import random
 import io
-import subprocess
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -72,12 +71,12 @@ def cmp_all(prob_no, ans_no):
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
         
         if sys.argv[1] == '0':
-            cmd = '{} {} {} -p'.format(conv, in_bin, ker_bin)
+            cmd = '{} {} {}'.format(conv, in_bin, ker_bin)
         elif len(sys.argv) > 3:
-            cmd = '{} {} {} {} -i {} -k {} -p'.format(
+            cmd = '{} {} {} {} -i {} -k {}'.format(
                     conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3])
         else:
-            cmd = '{} {} {} {} -p'.format(
+            cmd = '{} {} {} {}'.format(
                     conv, in_bin, ker_bin, sys.argv[1])
         print(cmd)
         os.system(cmd)
@@ -104,7 +103,7 @@ def eval_error(prob_no, mode, answers, vector, vec_idx, vec_val):
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-        cmd = '{} {} {} {} -i {} -k {} -p'.format(
+        cmd = '{} {} {} {} -i {} -k {}'.format(
                 conv, in_bin, ker_bin, mode, vector[0] / SEND, vector[1] / SEND)
         os.system(cmd)
         _, oup = read_file(out_bin)
@@ -113,23 +112,23 @@ def eval_error(prob_no, mode, answers, vector, vec_idx, vec_val):
     vector[vec_idx] = vec_org
     return sum(errors) / len(errors)
 
-def variable_search(mode, answers, ini_vec, vec_idx):
+def variable_search(prob_no, mode, answers, ini_vec, vec_idx):
     vec = [SEND * e for e in ini_vec]
     x = vec[vec_idx]
-    fit = eval_error(mode, answers, vec, vec_idx, x)
+    fit = eval_error(prob_no, mode, answers, vec, vec_idx, x)
     if fit == 0:
         return [x / SEND for x in vec], 0
 
     while True:
-        decr = eval_error(mode, answers, vec, vec_idx, x - 1)
-        incr = eval_error(mode, answers, vec, vec_idx, x + 1)
+        decr = eval_error(prob_no, mode, answers, vec, vec_idx, x - 1)
+        incr = eval_error(prob_no, mode, answers, vec, vec_idx, x + 1)
 
         if fit <= decr and fit <= incr:
             break
 
         k = 1 if decr > incr else -1
         while True:
-            fit_next = eval_error(mode, answers, vec, vec_idx, x + k)
+            fit_next = eval_error(prob_no, mode, answers, vec, vec_idx, x + k)
             if fit_next >= fit:
                 break
             else:
@@ -148,13 +147,13 @@ def avm_search(prob_no, ans_no, mode):
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
-    for i in range(1):
+    for i in range(20):
         fit = 100
-        # vec = [random.choice([-1, 1]) * random.random(), random.randint(20, 200)]
-        vec = [10.09, 5368759.11]
-        for j in range(20):
-            vec_idx = j % 2
-            new_vec, new_fit = variable_search(mode, answers, vec, vec_idx)
+        vec = [random.choice([1, 20]) * random.random(), random.randint(1000000, 10000000)]
+        # vec = [15.59, 5368759.11]
+        for j in range(4):
+            vec_idx = (j + 1) % 2
+            new_vec, new_fit = variable_search(prob_no, mode, answers, vec, vec_idx)
             print(new_vec, new_fit)
             if new_fit < fit:
                 vec = new_vec
@@ -165,7 +164,7 @@ def avm_search(prob_no, ans_no, mode):
 
     print(min_vec, min_fit)
 
-def meas_time(prob_no, mode, runs):
+def meas_time(prob_no, mode, runs, quan):
     pwd = os.getcwd()
     conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
 
@@ -174,10 +173,10 @@ def meas_time(prob_no, mode, runs):
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
 
         if mode == '0':
-            cmd = '{} {} {} -p'.format(conv, in_bin, ker_bin)
+            cmd = '{} {} {} -p {}'.format(conv, in_bin, ker_bin, 'c')
         else:
-            cmd = '{} {} {} {} -p'.format(
-                    conv, in_bin, ker_bin, mode)
+            cmd = '{} {} {} {} -p {}'.format(
+                    conv, in_bin, ker_bin, mode, 'q' if quan else 'c')
         print(i)
         for j in range(runs):
             os.system(cmd)
@@ -207,9 +206,9 @@ def meas_error(prob_no, ans_no, mode):
     print()
 
 if __name__=="__main__":
-    # avm_search(sys.argv[1])
-    cmp_all(2, 1)
-    # meas_time(2, sys.argv[1], 10)
+    avm_search(2, 1, sys.argv[1])
+    # cmp_all(2, 1)
+    # meas_time(3, sys.argv[1], 10, False)
     # meas_error(2, 1, sys.argv[1])
         
 
