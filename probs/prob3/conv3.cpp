@@ -511,11 +511,11 @@ bool initArgs(int argc, char* argv[]) {
     }
 
     if (Arg_mode == 32 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
-        Arg_s_in = 15.59f;
-        Arg_s_ker = 5368759.11f;
+        Arg_s_in = -79.6f; 
+        Arg_s_ker = 1022571.0f;
     } else if (Arg_mode == 16 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
-        Arg_s_in = 12.17f; 
-        Arg_s_ker = 132.0f;
+        Arg_s_in = -5.0f;
+        Arg_s_ker = 300.7f;
     }
     return true;
 }

@@ -147,10 +147,10 @@ def avm_search(prob_no, ans_no, mode):
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
-    for i in range(20):
+    for i in range(10):
         fit = 100
-        vec = [random.choice([1, 20]) * random.random(), random.randint(1000000, 10000000)]
-        # vec = [15.59, 5368759.11]
+        vec = [-random.randint(1, 20), random.randint(50, 200)]
+        # vec = [-5.0, 300.7]
         for j in range(4):
             vec_idx = (j + 1) % 2
             new_vec, new_fit = variable_search(prob_no, mode, answers, vec, vec_idx)
@@ -206,10 +206,10 @@ def meas_error(prob_no, ans_no, mode):
     print()
 
 if __name__=="__main__":
-    avm_search(2, 1, sys.argv[1])
+    avm_search(3, 3, sys.argv[1])
     # cmp_all(2, 1)
-    # meas_time(3, sys.argv[1], 10, False)
-    # meas_error(2, 1, sys.argv[1])
+    # meas_time(4, sys.argv[1], 10, False)
+    # meas_error(3, 3, sys.argv[1])
         
 
 
