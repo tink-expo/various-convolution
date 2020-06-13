@@ -11,11 +11,19 @@
 #include <limits>
 #include <pthread.h>
 #include <immintrin.h>
+#include <unistd.h>
 
 using namespace std;
 
 constexpr int P_THREADS = 4;
-bool arg_print_time = false;
+
+// Global args.
+bool Arg_print_time = false;
+int Arg_mode = 0;
+char* Arg_in_fname;
+char* Arg_ker_fname;
+float Arg_s_in;
+float Arg_s_ker;
 
 template <typename T> 
 struct Tensor {
@@ -156,7 +164,7 @@ void doConv2D(
             }
         }
     }
-    if (arg_print_time) {
+    if (Arg_print_time) {
         cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
     }
 }
@@ -215,7 +223,7 @@ void doConv2D(
             }
         }
     }
-    if (arg_print_time) {
+    if (Arg_print_time) {
         cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
     }
 }
@@ -273,7 +281,7 @@ void doConv2D(
             }
         }
     }
-    if (arg_print_time) {
+    if (Arg_print_time) {
         cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
     }
 }
@@ -475,9 +483,7 @@ void* threadFuncFloat(void* thread_arg)
 }
 
 template <typename T>
-void doConv2Dpthread(
-        int mode,
-        int oh,
+void doConv2Dpthread(int oh,
         Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
     clock_t start_c = clock();
@@ -502,11 +508,11 @@ void doConv2Dpthread(
 
         t_args[t_idx].oh_s = oh_s;
         t_args[t_idx].oh_e = oh_e;
-        if (mode == 0) {
+        if (Arg_mode == 0) {
             t_id = pthread_create(&threads[t_idx], NULL, threadFuncFloat, (void*) &t_args[t_idx]);
-        } else if (mode == 32) {
+        } else if (Arg_mode == 32) {
             t_id = pthread_create(&threads[t_idx], NULL, threadFuncInt32, (void*) &t_args[t_idx]);
-        } else if (mode == 16) {
+        } else if (Arg_mode == 16) {
             t_id = pthread_create(&threads[t_idx], NULL, threadFuncInt16, (void*) &t_args[t_idx]);
         }
         if (t_id < 0) {
@@ -519,7 +525,7 @@ void doConv2Dpthread(
         pthread_join(threads[t_idx], NULL);
     }
 
-    if (arg_print_time) {
+    if (Arg_print_time) {
         cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
     }
 }
@@ -556,7 +562,7 @@ Tensor<float> getPadded(
     return padded_tensor;
 }
 
-Tensor<float> conv2D(int mode, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+Tensor<float> conv2D(Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
@@ -592,14 +598,13 @@ Tensor<float> conv2D(int mode, Tensor<float>& in_tensor, Tensor<float>& ker_tens
             iw, pad_left,
             in_tensor);
     
-    doConv2Dpthread(
-            mode, oh,
+    doConv2Dpthread(oh,
             padded_tensor, ker_tensor, out_tensor);
     return out_tensor;
 }
 
 template <typename T>
-Tensor<float> quanConv2D(int mode, float s_in, float s_ker, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
+Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tensor<float>& ker_tensor)
 {
     int batch = in_tensor.dim[0];
     int np_ih = in_tensor.dim[1];
@@ -644,36 +649,76 @@ Tensor<float> quanConv2D(int mode, float s_in, float s_ker, Tensor<float>& in_te
     return getDequantized(s_in * s_ker, out_tensor);
 }
 
+bool initArgs(int argc, char* argv[]) {
+    Arg_print_time = false;
+    Arg_mode = 0;
+    Arg_s_in = 0;
+    Arg_s_ker = 0;
+
+    int op_c;
+    while ((op_c = getopt(argc, argv, "pi:k:")) != -1) {
+        if (op_c == 'p') {
+            Arg_print_time = true;
+        } else if (op_c == 'i') {
+            Arg_s_in = atof(optarg);
+        } else if (op_c == 'k') {
+            Arg_s_ker = atof(optarg);
+        } else {
+            return false;
+        }
+    }
+
+    int op_i = optind;
+    if (op_i + 2 >= argc) {
+        return false;
+    }
+    Arg_in_fname = argv[op_i];
+    Arg_ker_fname = argv[op_i + 1];
+    string mode_str(argv[op_i + 2]);
+    if (mode_str == "FP32") {
+        Arg_mode = 0;
+    } else if (mode_str == "INT32") {
+        Arg_mode = 32;
+    } else if (mode_str == "INT16") {
+        Arg_mode = 16;
+    } else {
+        return false;
+    }
+
+    if (Arg_mode == 32 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
+        Arg_s_in = 15.59f;
+        Arg_s_ker = 5368759.11f;
+    } else if (Arg_mode == 16 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
+        Arg_s_in = 12.17f; 
+        Arg_s_ker = 132.0f;
+    }
+    return true;
+}
 
 int main(int argc, char* argv[])
 {
-    if (argc < 6) {
+    if (!initArgs(argc, argv)) {
         cout << "Invalid args." << endl;
         return 0;
     }
-    if (argc >= 7 && string(argv[6]) == "pt") {
-        arg_print_time = true;
-    }
-    int mode = atoi(argv[3]);
-    float s_in = atof(argv[4]);
-    float s_ker = atof(argv[5]);
+    assert(Arg_mode == 0 || (Arg_s_in != 0 && Arg_s_ker != 0));
 
     Tensor<float> in_tensor;
     Tensor<float> ker_tensor;
 
-    if (!readFile(argv[1], in_tensor) || !readFile(argv[2], ker_tensor)) {
-        cout << "Invalid args." << endl;
+    if (!readFile(Arg_in_fname, in_tensor) || !readFile(Arg_ker_fname, ker_tensor)) {
+        cout << "No such file for input_tensor or kernel_tensor." << endl;
         return 0;
     }
 
     constexpr char out_fname[] = "output_tensor.bin";
-    if (mode == 0) {
-        writeFile(out_fname, conv2D(mode, in_tensor, ker_tensor));
-    } else if (mode == 32) {
-        writeFile(out_fname, quanConv2D<int32_t>(mode, s_in, s_ker, in_tensor, ker_tensor));
-    } else if (mode == 16) {
-        writeFile(out_fname, quanConv2D<int16_t>(mode, s_in, s_ker, in_tensor, ker_tensor));
+    if (Arg_mode == 0) {
+        writeFile(out_fname, conv2D(in_tensor, ker_tensor));
+    } else if (Arg_mode == 32) {
+        writeFile(out_fname, quanConv2D<int32_t>(Arg_s_in, Arg_s_ker, in_tensor, ker_tensor));
+    } else if (Arg_mode == 16) {
+        writeFile(out_fname, quanConv2D<int16_t>(Arg_s_in, Arg_s_ker, in_tensor, ker_tensor));
     } else {
-        cout << "Invalid args." << endl;
+        assert(0);
     }
 }

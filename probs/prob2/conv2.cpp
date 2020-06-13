@@ -14,12 +14,12 @@
 using namespace std;
 
 // Global args.
-bool arg_print_time = false;
-int arg_mode = 0;
-char* arg_in_fname;
-char* arg_ker_fname;
-float arg_s_in;
-float arg_s_ker;
+bool Arg_print_time = false;
+int Arg_mode = 0;
+char* Arg_in_fname;
+char* Arg_ker_fname;
+float Arg_s_in;
+float Arg_s_ker;
 
 template <typename T> 
 struct Tensor {
@@ -134,7 +134,7 @@ void doConv2D(
             }
         }
     }
-    if (arg_print_time) {
+    if (Arg_print_time) {
         cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
     }
 }
@@ -260,19 +260,19 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
 }
 
 bool initArgs(int argc, char* argv[]) {
-    arg_print_time = false;
-    arg_mode = 0;
-    arg_s_in = 0;
-    arg_s_ker = 0;
+    Arg_print_time = false;
+    Arg_mode = 0;
+    Arg_s_in = 0;
+    Arg_s_ker = 0;
 
     int op_c;
     while ((op_c = getopt(argc, argv, "pi:k:")) != -1) {
         if (op_c == 'p') {
-            arg_print_time = true;
+            Arg_print_time = true;
         } else if (op_c == 'i') {
-            arg_s_in = atof(optarg);
+            Arg_s_in = atof(optarg);
         } else if (op_c == 'k') {
-            arg_s_ker = atof(optarg);
+            Arg_s_ker = atof(optarg);
         } else {
             return false;
         }
@@ -282,51 +282,54 @@ bool initArgs(int argc, char* argv[]) {
     if (op_i + 1 >= argc) {
         return false;
     }
-    arg_in_fname = argv[op_i];
-    arg_ker_fname = argv[op_i + 1];
+    Arg_in_fname = argv[op_i];
+    Arg_ker_fname = argv[op_i + 1];
     if (op_i + 2 < argc) {
-        arg_mode = atoi(argv[op_i + 2]);
-        if (!(arg_mode == 0 || 
-                arg_mode == 32 || arg_mode == 16 || arg_mode == 8)) {
+        Arg_mode = atoi(argv[op_i + 2]);
+        if (!(Arg_mode == 0 || 
+                Arg_mode == 32 || Arg_mode == 16 || Arg_mode == 8)) {
             return false;
         }
     }
 
-    if (arg_mode == 32 && (arg_s_in == 0 || arg_s_ker == 0)) {
-        arg_s_in = 10.09f; 
-        arg_s_ker = 5368759.11f;
-    } else if (arg_mode == 16 && (arg_s_in == 0 || arg_s_ker == 0)) {
-        arg_s_in = 10.07f; 
-        arg_s_ker = 132.0f;
-    } else if (arg_mode == 8 && (arg_s_in == 0 || arg_s_ker == 0)) {
-        arg_s_in = -0.22223087197345534; 
-        arg_s_ker = 70.0f;
+    if (Arg_mode == 32 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
+        Arg_s_in = 10.09f; 
+        Arg_s_ker = 5368759.11f;
+    } else if (Arg_mode == 16 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
+        Arg_s_in = 10.07f; 
+        Arg_s_ker = 132.0f;
+    } else if (Arg_mode == 8 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
+        Arg_s_in = -0.22223087197345534; 
+        Arg_s_ker = 70.0f;
     }
     return true;
 }
 
 int main(int argc, char* argv[])
 {
-    initArgs(argc, argv);
-    assert(arg_mode == 0 || (arg_s_in != 0 && arg_s_ker != 0));
+    if (!initArgs(argc, argv)) {
+        cout << "Invalid args." << endl;
+        return 0;
+    }
+    assert(Arg_mode == 0 || (Arg_s_in != 0 && Arg_s_ker != 0));
 
     Tensor<float> in_tensor;
     Tensor<float> ker_tensor;
 
-    if (!readFile(arg_in_fname, in_tensor) || !readFile(arg_ker_fname, ker_tensor)) {
+    if (!readFile(Arg_in_fname, in_tensor) || !readFile(Arg_ker_fname, ker_tensor)) {
         cout << "No such file for input_tensor or kernel_tensor." << endl;
         return 0;
     }
 
     constexpr char out_fname[] = "output_tensor.bin";
-    if (arg_mode == 0) {
+    if (Arg_mode == 0) {
         writeFile(out_fname, conv2D(in_tensor, ker_tensor));
-    } else if (arg_mode == 32) {
-        writeFile(out_fname, quanConv2D<int32_t>(arg_s_in, arg_s_ker, in_tensor, ker_tensor));
-    } else if (arg_mode == 16) {
-        writeFile(out_fname, quanConv2D<int16_t>(arg_s_in, arg_s_ker, in_tensor, ker_tensor));
-    } else if (arg_mode == 8) {
-        writeFile(out_fname, quanConv2D<int8_t>(arg_s_in, arg_s_ker, in_tensor, ker_tensor));
+    } else if (Arg_mode == 32) {
+        writeFile(out_fname, quanConv2D<int32_t>(Arg_s_in, Arg_s_ker, in_tensor, ker_tensor));
+    } else if (Arg_mode == 16) {
+        writeFile(out_fname, quanConv2D<int16_t>(Arg_s_in, Arg_s_ker, in_tensor, ker_tensor));
+    } else if (Arg_mode == 8) {
+        writeFile(out_fname, quanConv2D<int8_t>(Arg_s_in, Arg_s_ker, in_tensor, ker_tensor));
     } else {
         assert(0);
     }

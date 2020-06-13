@@ -8,8 +8,8 @@ import copy
 import random
 import io
 
-prob_num = 2
-ans_num = 1
+prob_num = 1
+ans_num = 3
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -74,7 +74,7 @@ def cmp_all():
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
         
-        if int(sys.argv[1]) == 0:
+        if sys.argv[1] == '0':
             cmd = '{} {} {} -p'.format(conv, in_bin, ker_bin)
         elif len(sys.argv) > 3:
             cmd = '{} {} {} {} -i {} -k {} -p'.format(
@@ -86,8 +86,8 @@ def cmp_all():
         os.system(cmd)
 
         ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_num)
-        _, ans = read_file(ans_bin)
-        # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
+        # _, ans = read_file(ans_bin)  # Judge with mine
+        ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
 
         print('AVG: {}'.format(abs(ans).mean()))
