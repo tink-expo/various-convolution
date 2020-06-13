@@ -8,8 +8,8 @@ import copy
 import random
 import io
 
-prob_num = 4
-ans_num = 4
+prob_num = 2
+ans_num = 1
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -73,11 +73,17 @@ def cmp_all():
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-        if prob_num == 4:
-            os.system('{} {} {}'.format(conv, in_bin, ker_bin))
+        
+        if int(sys.argv[1]) == 0:
+            cmd = '{} {} {} -p'.format(conv, in_bin, ker_bin)
+        elif len(sys.argv) > 3:
+            cmd = '{} {} {} {} -i {} -k {} -p'.format(
+                    conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3])
         else:
-            os.system('{} {} {} {} {} {} {}'.format(
-                    conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3], 'pt'))
+            cmd = '{} {} {} {} -p'.format(
+                    conv, in_bin, ker_bin, sys.argv[1])
+        print(cmd)
+        os.system(cmd)
 
         ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_num)
         _, ans = read_file(ans_bin)
@@ -117,8 +123,9 @@ def eval_error(mode, answers, vector, vec_idx, vec_val):
     for i in range(1, 4):
         in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
         ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
-        os.system('{} {} {} {} {} {}'.format(
-                conv, in_bin, ker_bin, mode, vector[0] / SEND, vector[1] / SEND))
+        cmd = '{} {} {} {} -i {} -k {} -p'.format(
+                conv, in_bin, ker_bin, mode, vector[0] / SEND, vector[1] / SEND)
+        os.system(cmd)
         _, oup = read_file(out_bin)
         ans = answers[i]
         errors.append(NRMSE(oup, ans))

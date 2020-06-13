@@ -9,9 +9,17 @@
 #include <ctime>
 #include <array>
 #include <limits>
+#include <unistd.h>
 
 using namespace std;
+
+// Global args.
 bool arg_print_time = false;
+int arg_mode = 0;
+char* arg_in_fname;
+char* arg_ker_fname;
+float arg_s_in;
+float arg_s_ker;
 
 template <typename T> 
 struct Tensor {
@@ -251,39 +259,75 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
     return getDequantized(s_in * s_ker, out_tensor);
 }
 
+bool initArgs(int argc, char* argv[]) {
+    arg_print_time = false;
+    arg_mode = 0;
+    arg_s_in = 0;
+    arg_s_ker = 0;
+
+    int op_c;
+    while ((op_c = getopt(argc, argv, "pi:k:")) != -1) {
+        if (op_c == 'p') {
+            arg_print_time = true;
+        } else if (op_c == 'i') {
+            arg_s_in = atof(optarg);
+        } else if (op_c == 'k') {
+            arg_s_ker = atof(optarg);
+        } else {
+            return false;
+        }
+    }
+
+    int op_i = optind;
+    if (op_i + 1 >= argc) {
+        return false;
+    }
+    arg_in_fname = argv[op_i];
+    arg_ker_fname = argv[op_i + 1];
+    if (op_i + 2 < argc) {
+        arg_mode = atoi(argv[op_i + 2]);
+        if (!(arg_mode == 0 || 
+                arg_mode == 32 || arg_mode == 16 || arg_mode == 8)) {
+            return false;
+        }
+    }
+
+    if (arg_mode == 32 && (arg_s_in == 0 || arg_s_ker == 0)) {
+        arg_s_in = 10.09f; 
+        arg_s_ker = 5368759.11f;
+    } else if (arg_mode == 16 && (arg_s_in == 0 || arg_s_ker == 0)) {
+        arg_s_in = 10.07f; 
+        arg_s_ker = 132.0f;
+    } else if (arg_mode == 8 && (arg_s_in == 0 || arg_s_ker == 0)) {
+        arg_s_in = -0.22223087197345534; 
+        arg_s_ker = 70.0f;
+    }
+    return true;
+}
 
 int main(int argc, char* argv[])
 {
-    if (argc < 6) {
-        cout << "Invalid args." << endl;
-        return 0;
-    }
-    if (argc >= 7 && string(argv[6]) == "pt") {
-        arg_print_time = true;
-    }
-
-    int mode = atoi(argv[3]);
-    float s_in = atof(argv[4]);
-    float s_ker = atof(argv[5]);
+    initArgs(argc, argv);
+    assert(arg_mode == 0 || (arg_s_in != 0 && arg_s_ker != 0));
 
     Tensor<float> in_tensor;
     Tensor<float> ker_tensor;
 
-    if (!readFile(argv[1], in_tensor) || !readFile(argv[2], ker_tensor)) {
-        cout << "Invalid args." << endl;
+    if (!readFile(arg_in_fname, in_tensor) || !readFile(arg_ker_fname, ker_tensor)) {
+        cout << "No such file for input_tensor or kernel_tensor." << endl;
         return 0;
     }
 
     constexpr char out_fname[] = "output_tensor.bin";
-    if (mode == 0) {
+    if (arg_mode == 0) {
         writeFile(out_fname, conv2D(in_tensor, ker_tensor));
-    } else if (mode == 32) {
-        writeFile(out_fname, quanConv2D<int32_t>(s_in, s_ker, in_tensor, ker_tensor));
-    } else if (mode == 16) {
-        writeFile(out_fname, quanConv2D<int16_t>(s_in, s_ker, in_tensor, ker_tensor));
-    } else if (mode == 8) {
-        writeFile(out_fname, quanConv2D<int8_t>(s_in, s_ker, in_tensor, ker_tensor));
+    } else if (arg_mode == 32) {
+        writeFile(out_fname, quanConv2D<int32_t>(arg_s_in, arg_s_ker, in_tensor, ker_tensor));
+    } else if (arg_mode == 16) {
+        writeFile(out_fname, quanConv2D<int16_t>(arg_s_in, arg_s_ker, in_tensor, ker_tensor));
+    } else if (arg_mode == 8) {
+        writeFile(out_fname, quanConv2D<int8_t>(arg_s_in, arg_s_ker, in_tensor, ker_tensor));
     } else {
-        cout << "Invalid args." << endl;
+        assert(0);
     }
 }

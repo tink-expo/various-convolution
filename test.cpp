@@ -4,6 +4,7 @@
 #include <iostream>
 #include <immintrin.h>
 #include <bitset>
+#include <unistd.h>
 using namespace std;
 
 template <typename T>
@@ -76,6 +77,16 @@ void avx()
     cout << endl;
 }
 
-main() {
-    avx();
+main(int argc, char* argv[]) {
+    int c;
+    while ((c = getopt(argc, argv, "a:")) != -1) {
+        if (c == 'a') {
+            cout << optarg << endl;
+        } else {
+            abort();
+        }
+    }
+    for (int i = optind; i < argc; ++i) {
+        cout << argv[i] << endl;
+    }
 }
