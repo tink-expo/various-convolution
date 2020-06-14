@@ -82,8 +82,8 @@ def cmp_all(prob_no, ans_no):
         os.system(cmd)
 
         ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
-        _, ans = read_file(ans_bin)  # Judge with mine
-        # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
+        # _, ans = read_file(ans_bin)  # Judge with mine
+        ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
 
         print('AVG: {}'.format(abs(ans).mean()))
@@ -205,11 +205,71 @@ def meas_error(prob_no, ans_no, mode):
         print(error, end=' ')
     print()
 
+def tf_quan_fname(fname):
+    sess = tf.compat.v1.Session(
+        target='', graph=None, config=None
+    )
+    _, ir = read_file(fname)
+    min_range = ir.min()
+    max_range = ir.max()
+    # print(min_range, max_range)
+    orr = tf.quantization.quantize(
+        ir, min_range, max_range, tf.dtypes.qint32, mode='SCALED',
+        round_mode='HALF_AWAY_FROM_ZERO'
+    ).output.eval(session=sess)
+    sess.close()
+    return ir, orr
+
+def tf_quan(irr, sess):
+    min_range = irr.min()
+    max_range = irr.max()
+    # print(min_range, max_range)
+    orr = tf.quantization.quantize(
+        irr, min_range, max_range, tf.dtypes.qint32, mode='SCALED',
+        round_mode='HALF_AWAY_FROM_ZERO'
+    ).output.eval(session=sess)
+    return (orr / irr).mean(), orr[0,0,0,0]/irr[0,0,0,0]
+
+def cmp_tf_quan(prob_no, ans_no, mode):
+    sess = tf.compat.v1.Session(
+        target='', graph=None, config=None
+    )
+    pwd = os.getcwd()
+    out_bin = '{}/output_tensor.bin'.format(pwd)
+    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
+    for i in range(1, 4):
+        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
+        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+
+        _, it = read_file(in_bin)
+        _, kt = read_file(ker_bin)
+
+        ism, isc = tf_quan(it, sess)
+        ksm, ksc = tf_quan(kt, sess)
+
+        print(ism, isc, ksm, ksc)
+
+        cmd = '{} {} {} {} -i {} -k {}'.format(
+                conv, in_bin, ker_bin, mode, ism, ksm)
+        print(cmd)
+        os.system(cmd)
+
+        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
+        _, ans = read_file(ans_bin)
+        _, oup = read_file(out_bin)
+        print(abs(ans).sum())
+        print(abs(oup).sum())
+
+        print('AVG: {}'.format(abs(ans).mean()))
+        print('DIFF: {}'.format(abs(oup - ans).mean()))
+        print('NRMSE: {}'.format(NRMSE(oup, ans)))
+        print()
+    sess.close()
+
+
+
 if __name__=="__main__":
-    avm_search(3, 3, sys.argv[1])
-    # cmp_all(2, 1)
-    # meas_time(4, sys.argv[1], 10, False)
-    # meas_error(3, 3, sys.argv[1])
+    cmp_all(1, 1)
         
 
 
