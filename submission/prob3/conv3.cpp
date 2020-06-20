@@ -24,6 +24,7 @@ char* Arg_in_fname;
 char* Arg_ker_fname;
 float Arg_s_in;
 float Arg_s_ker;
+bool Arg_mem_r = false;
 
 template <typename T> 
 struct Tensor {
@@ -69,6 +70,36 @@ bool readFile(const char* fname, Tensor<float>& tensor)
     tensor.val.assign((fsize - 16) / sizeof(float), 0);
     ifs.read((char*) tensor.valPtr(), fsize - 16);
     return true;
+}
+
+void transposeKernel0132(Tensor<float>& ker_tensor)
+{
+    int kh = ker_tensor.dim[0];
+    int kw = ker_tensor.dim[1];
+    int od = ker_tensor.dim[2];
+    int ic = ker_tensor.dim[3];
+    
+    vector<float> val_untrans = ker_tensor.val;
+
+    for (int c = 0; c < ic; ++c) {
+        for (int i = 0; i < kh; ++i) {
+            for (int j = 0; j < kw; ++j) {
+                for (int d = 0; d < od; ++d) {
+                    ker_tensor.val[
+                        i * (kw * od * ic) +
+                        j * (od * ic) +
+                        d * ic +
+                        c
+                    ] = val_untrans[
+                        i * (kw * od * ic) +
+                        j * (od * ic) +
+                        c * od +
+                        d
+                    ];
+                }
+            }
+        }
+    }
 }
 
 void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int* pad_back)
@@ -475,15 +506,18 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
 }
 
 bool initArgs(int argc, char* argv[]) {
-    Arg_print_time = 0;
+    Arg_print_time = false;
     Arg_mode = 0;
     Arg_s_in = 0;
     Arg_s_ker = 0;
+    Arg_mem_r = false;
 
     int op_c;
-    while ((op_c = getopt(argc, argv, "p:i:k:")) != -1) {
+    while ((op_c = getopt(argc, argv, "pri:k:")) != -1) {
         if (op_c == 'p') {
-            Arg_print_time = *optarg;
+            Arg_print_time = true;
+        } else if (op_c == 'r') {
+            Arg_mem_r = true;
         } else if (op_c == 'i') {
             Arg_s_in = atof(optarg);
         } else if (op_c == 'k') {
@@ -534,6 +568,9 @@ int main(int argc, char* argv[])
     if (!readFile(Arg_in_fname, in_tensor) || !readFile(Arg_ker_fname, ker_tensor)) {
         cout << "No such file for input_tensor or kernel_tensor." << endl;
         return 0;
+    }
+    if (Arg_mem_r) {
+        transposeKernel0132(ker_tensor);
     }
 
     constexpr char out_fname[] = "output_tensor.bin";

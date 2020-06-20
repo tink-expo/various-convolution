@@ -31,28 +31,11 @@ def read_fsize(fname):
     dim = np.fromfile(fname, dtype=np.int32, count=4)
     print(dim)
 
-def get_ans(in_bin, layer_name):
-    y_ans = 0.0
-    with tf.device('/gpu:1'):
-        model = tf.keras.applications.ResNet50(
-            include_top=True, weights='imagenet', input_tensor=None, input_shape=None,
-            pooling=None, classes=1000
-        )
-
-        dim, inp = read_file(in_bin)
-
-        for layer in model.layers:
-            if layer.name == layer_name:
-                y = layer(inp)
-                y_ans = K.eval(y)
-        
-        del model
-
-    return y_ans
-
-def manual_ans(in_bin, ker_bin):
+def keras_ans_r(in_bin, ker_bin):
     dim1, inp = read_file(in_bin)
     dim, ker = read_file(ker_bin)
+    dim[2], dim[3] = dim[3], dim[2]
+    ker = ker.reshape(dim)
     with tf.device('/gpu:1'):
         layer = tf.keras.layers.Conv2D(dim[3], (dim[0], dim[1]), padding='same', use_bias=False, 
                 input_shape=(dim1[0], dim1[1], dim1[2], dim1[3]), weights=[ker])
@@ -61,7 +44,7 @@ def manual_ans(in_bin, ker_bin):
 
     return y_ans
 
-def shift_ans(in_bin, ker_bin):
+def keras_ans(in_bin, ker_bin):
     dim1, inp = read_file(in_bin)
     dim, ker = read_file(ker_bin)
     ker = ker.transpose(0, 1, 3, 2)
@@ -74,13 +57,12 @@ def shift_ans(in_bin, ker_bin):
 
     return y_ans
 
-
 def NRMSE(x, y):
     numer = math.sqrt((np.square(x - y)).mean())
     denom = y.max() - y.min()
     return numer / denom
 
-def cmp_all(prob_no, ans_no, run_cpp_nrmse=False):
+def cmp_all(prob_no, ans_no, r_flag, run_cpp_nrmse=False):
     out_bin = get_out_bin()
     conv = get_conv_bin(prob_no)
     for i in range(1, 4):
@@ -95,12 +77,18 @@ def cmp_all(prob_no, ans_no, run_cpp_nrmse=False):
         else:
             cmd = '{} {} {} {}'.format(
                     conv, in_bin, ker_bin, sys.argv[1])
+
+        if r_flag:
+            cmd += ' -r'
         print(cmd)
         os.system(cmd)
 
         ans_bin = get_ans_bin(ans_no, i)
-        _, ans = read_file(ans_bin)  # Judge with mine
-        # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
+        # _, ans = read_file(ans_bin)  # Judge with mine
+        if r_flag:
+            ans = keras_ans_r(in_bin, ker_bin)  # Judge with keras
+        else:
+            ans = keras_ans(in_bin, ker_bin)
         _, oup = read_file(out_bin)
 
         print('AVG: {}'.format(abs(ans).mean()))
@@ -223,70 +211,8 @@ def meas_error(prob_no, ans_no, mode):
         print(error, end=' ')
     print()
 
-def tf_quan_fname(fname):
-    sess = tf.compat.v1.Session(
-        target='', graph=None, config=None
-    )
-    _, ir = read_file(fname)
-    min_range = ir.min()
-    max_range = ir.max()
-    # print(min_range, max_range)
-    orr = tf.quantization.quantize(
-        ir, min_range, max_range, tf.dtypes.qint32, mode='SCALED',
-        round_mode='HALF_AWAY_FROM_ZERO'
-    ).output.eval(session=sess)
-    sess.close()
-    return ir, orr
-
-def tf_quan(irr, sess):
-    min_range = irr.min()
-    max_range = irr.max()
-    # print(min_range, max_range)
-    orr = tf.quantization.quantize(
-        irr, min_range, max_range, tf.dtypes.qint32, mode='SCALED',
-        round_mode='HALF_AWAY_FROM_ZERO'
-    ).output.eval(session=sess)
-    return (orr / irr).mean(), orr[0,0,0,0]/irr[0,0,0,0]
-
-def cmp_tf_quan(prob_no, ans_no, mode):
-    sess = tf.compat.v1.Session(
-        target='', graph=None, config=None
-    )
-    out_bin = get_out_bin()
-    conv = get_conv_bin(prob_no)
-    for i in range(1, 4):
-        in_bin = get_in_bin(i)
-        ker_bin = get_ker_bin(i)
-
-        _, it = read_file(in_bin)
-        _, kt = read_file(ker_bin)
-
-        ism, isc = tf_quan(it, sess)
-        ksm, ksc = tf_quan(kt, sess)
-
-        print(ism, isc, ksm, ksc)
-
-        cmd = '{} {} {} {} -i {} -k {}'.format(
-                conv, in_bin, ker_bin, mode, ism, ksm)
-        print(cmd)
-        os.system(cmd)
-
-        ans_bin = get_ans_bin(ans_no, i)
-        _, ans = read_file(ans_bin)
-        _, oup = read_file(out_bin)
-        print(abs(ans).sum())
-        print(abs(oup).sum())
-
-        print('AVG: {}'.format(abs(ans).mean()))
-        print('DIFF: {}'.format(abs(oup - ans).mean()))
-        print('NRMSE: {}'.format(NRMSE(oup, ans)))
-        print()
-    sess.close()
-
-
-
 if __name__=="__main__":
-    cmp_all(2, 1, True)
+    cmp_all(4, 4)
         
 
 

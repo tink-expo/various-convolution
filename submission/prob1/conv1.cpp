@@ -20,6 +20,7 @@ char* Arg_in_fname;
 char* Arg_ker_fname;
 float Arg_s_in;
 float Arg_s_ker;
+bool Arg_mem_r = false;
 
 template <typename T> 
 struct Tensor {
@@ -55,6 +56,36 @@ bool readFile(const char* fname, Tensor<float>& tensor)
     tensor.val.assign((fsize - 16) / sizeof(float), 0);
     ifs.read((char*) tensor.valPtr(), fsize - 16);
     return true;
+}
+
+void transposeKernel0132(Tensor<float>& ker_tensor)
+{
+    int kh = ker_tensor.dim[0];
+    int kw = ker_tensor.dim[1];
+    int od = ker_tensor.dim[2];
+    int ic = ker_tensor.dim[3];
+    
+    vector<float> val_untrans = ker_tensor.val;
+
+    for (int c = 0; c < ic; ++c) {
+        for (int i = 0; i < kh; ++i) {
+            for (int j = 0; j < kw; ++j) {
+                for (int d = 0; d < od; ++d) {
+                    ker_tensor.val[
+                        i * (kw * od * ic) +
+                        j * (od * ic) +
+                        d * ic +
+                        c
+                    ] = val_untrans[
+                        i * (kw * od * ic) +
+                        j * (od * ic) +
+                        c * od +
+                        d
+                    ];
+                }
+            }
+        }
+    }
 }
 
 void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int* pad_back)
@@ -264,11 +295,14 @@ bool initArgs(int argc, char* argv[]) {
     Arg_mode = 0;
     Arg_s_in = 0;
     Arg_s_ker = 0;
+    Arg_mem_r = false;
 
     int op_c;
-    while ((op_c = getopt(argc, argv, "pi:k:")) != -1) {
+    while ((op_c = getopt(argc, argv, "pri:k:")) != -1) {
         if (op_c == 'p') {
             Arg_print_time = true;
+        } else if (op_c == 'r') {
+            Arg_mem_r = true;
         } else if (op_c == 'i') {
             Arg_s_in = atof(optarg);
         } else if (op_c == 'k') {
@@ -293,13 +327,13 @@ bool initArgs(int argc, char* argv[]) {
     }
 
     if (Arg_mode == 32 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
-        Arg_s_in = 10.09f; 
-        Arg_s_ker = 5368759.11f;
+        Arg_s_in = -79.6f; 
+        Arg_s_ker = 1022571.0f;
     } else if (Arg_mode == 16 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
-        Arg_s_in = 10.07f; 
-        Arg_s_ker = 132.0f;
+        Arg_s_in = -5.0f;
+        Arg_s_ker = 300.7f;
     } else if (Arg_mode == 8 && (Arg_s_in == 0 || Arg_s_ker == 0)) {
-        Arg_s_in = -0.22223087197345534; 
+        Arg_s_in = -0.22223f; 
         Arg_s_ker = 70.0f;
     }
     return true;
@@ -319,6 +353,9 @@ int main(int argc, char* argv[])
     if (!readFile(Arg_in_fname, in_tensor) || !readFile(Arg_ker_fname, ker_tensor)) {
         cout << "No such file for input_tensor or kernel_tensor." << endl;
         return 0;
+    }
+    if (Arg_mem_r) {
+        transposeKernel0132(ker_tensor);
     }
 
     constexpr char out_fname[] = "output_tensor.bin";

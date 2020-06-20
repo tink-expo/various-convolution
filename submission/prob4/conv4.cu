@@ -17,6 +17,7 @@ using namespace std;
 bool Arg_print_time = false;
 char* Arg_in_fname;
 char* Arg_ker_fname;
+bool Arg_mem_r = false;
 
 const int CUDA_THREADS_2D = 16;
 
@@ -70,26 +71,25 @@ void getOutPads1D(int in_size, int ker_size, int* out_size, int* pad_front, int*
     *pad_back = pad_size - *pad_front;
 }
 
-vector<float> getKernelTranspose(
-        const Tensor& ker_tensor)
+void transposeKernel3012(Tensor& ker_tensor)
 {
     int kh = ker_tensor.dim[0];
     int kw = ker_tensor.dim[1];
     int od = ker_tensor.dim[2];
     int ic = ker_tensor.dim[3];
-
-    vector<float> trans_ker(ker_tensor.val.size());
+    
+    vector<float> val_untrans = ker_tensor.val;
 
     for (int c = 0; c < ic; ++c) {
         for (int i = 0; i < kh; ++i) {
             for (int j = 0; j < kw; ++j) {
                 for (int d = 0; d < od; ++d) {
-                    trans_ker[
+                    ker_tensor.val[
                         c * (kh * kw * od) +
                         i * (kw * od) +
                         j * od +
                         d
-                    ] = ker_tensor.val[
+                    ] = val_untrans[
                         i * (kw * od * ic) +
                         j * (od * ic) +
                         d * ic +
@@ -99,7 +99,36 @@ vector<float> getKernelTranspose(
             }
         }
     }
-    return trans_ker;
+}
+
+void transposeKernel2013(Tensor& ker_tensor)
+{
+    int kh = ker_tensor.dim[0];
+    int kw = ker_tensor.dim[1];
+    int od = ker_tensor.dim[2];
+    int ic = ker_tensor.dim[3];
+    
+    vector<float> val_untrans = ker_tensor.val;
+
+    for (int c = 0; c < ic; ++c) {
+        for (int i = 0; i < kh; ++i) {
+            for (int j = 0; j < kw; ++j) {
+                for (int d = 0; d < od; ++d) {
+                    ker_tensor.val[
+                        c * (kh * kw * od) +
+                        i * (kw * od) +
+                        j * od +
+                        d
+                    ] = val_untrans[
+                        i * (kw * od * ic) +
+                        j * (od * ic) +
+                        c * od +
+                        d
+                    ];
+                }
+            }
+        }
+    }
 }
 
 vector<float> getIm2col(
@@ -171,7 +200,6 @@ void conv2Dcuda(
     int ic = ker_tensor.dim[3];
 
     const vector<float>& col = getIm2col(oh, ow, kh, kw, padded_tensor);
-    const vector<float>& trans_ker = getKernelTranspose(ker_tensor);
 
     int m_size = batch * oh * ow;
     int n_size = od;
@@ -186,7 +214,7 @@ void conv2Dcuda(
     cudaMalloc((void **) &d_out, sizeof(float) * m_size * k_size);
     
     cudaMemcpy(d_col, col.data(), sizeof(float) * m_size * k_size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_ker, trans_ker.data(), sizeof(float) * k_size * n_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_ker, ker_tensor.val.data(), sizeof(float) * k_size * n_size, cudaMemcpyHostToDevice);
     
     unsigned int grid_r = (m_size + CUDA_THREADS_2D - 1) / CUDA_THREADS_2D;
     unsigned int grid_c = (n_size + CUDA_THREADS_2D - 1) / CUDA_THREADS_2D;
@@ -282,9 +310,11 @@ bool initArgs(int argc, char* argv[]) {
     Arg_print_time = false;
 
     int op_c;
-    while ((op_c = getopt(argc, argv, "p")) != -1) {
+    while ((op_c = getopt(argc, argv, "pr")) != -1) {
         if (op_c == 'p') {
             Arg_print_time = true;
+        } else if (op_c == 'r') {
+            Arg_mem_r = true;
         } else {
             return false;
         }
@@ -312,6 +342,11 @@ int main(int argc, char* argv[])
     if (!readFile(Arg_in_fname, in_tensor) || !readFile(Arg_ker_fname, ker_tensor)) {
         cout << "No such file for input_tensor or kernel_tensor." << endl;
         return 0;
+    }
+    if (Arg_mem_r) {
+        transposeKernel2013(ker_tensor);
+    } else {
+        transposeKernel3012(ker_tensor);
     }
 
     cudaFree(0);
