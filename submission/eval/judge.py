@@ -8,6 +8,18 @@ import copy
 import random
 import io
 
+cwd = os.getcwd()
+def get_out_bin():
+    return '{}/output_tensor.bin'.format(cwd)
+def get_conv_bin(prob_no):
+    return '{}/../prob{}/convolution'.format(cwd, prob_no)
+def get_in_bin(i):
+    return '{}/../../group2/{}/it.bin'.format(cwd, i)
+def get_ker_bin(i):
+    return '{}/../../group2/{}/kt.bin'.format(cwd, i)
+def get_ans_bin(ans_no, i):
+    return '{}/../../group2/{}/o{}.bin'.format(cwd, i, ans_no)
+
 def read_file(fname):
     whole = np.fromfile(fname)
     dim = np.frombuffer(whole.data, dtype=np.int32, count=4)
@@ -20,27 +32,32 @@ def read_fsize(fname):
     print(dim)
 
 def get_ans(in_bin, layer_name):
-    model = tf.keras.applications.ResNet50(
-        include_top=True, weights='imagenet', input_tensor=None, input_shape=None,
-        pooling=None, classes=1000
-    )
+    y_ans = 0.0
+    with tf.device('/gpu:1'):
+        model = tf.keras.applications.ResNet50(
+            include_top=True, weights='imagenet', input_tensor=None, input_shape=None,
+            pooling=None, classes=1000
+        )
 
-    dim, inp = read_file(in_bin)
+        dim, inp = read_file(in_bin)
 
-    for layer in model.layers:
-        if layer.name == layer_name:
-            y = layer(inp)
-            y_ans = K.eval(y)
+        for layer in model.layers:
+            if layer.name == layer_name:
+                y = layer(inp)
+                y_ans = K.eval(y)
+        
+        del model
 
     return y_ans
 
 def manual_ans(in_bin, ker_bin):
     dim1, inp = read_file(in_bin)
     dim, ker = read_file(ker_bin)
-    layer = tf.keras.layers.Conv2D(dim[3], (dim[0], dim[1]), padding='same', use_bias=False, 
-            input_shape=(dim1[0], dim1[1], dim1[2], dim1[3]), weights=[ker])
-    y = layer(inp)
-    y_ans = K.eval(y)
+    with tf.device('/gpu:1'):
+        layer = tf.keras.layers.Conv2D(dim[3], (dim[0], dim[1]), padding='same', use_bias=False, 
+                input_shape=(dim1[0], dim1[1], dim1[2], dim1[3]), weights=[ker])
+        y = layer(inp)
+        y_ans = K.eval(y)
 
     return y_ans
 
@@ -49,10 +66,11 @@ def shift_ans(in_bin, ker_bin):
     dim, ker = read_file(ker_bin)
     ker = ker.transpose(0, 1, 3, 2)
     dim[2], dim[3] = dim[3], dim[2]
-    layer = tf.keras.layers.Conv2D(dim[3], (dim[0], dim[1]), padding='same', use_bias=False, 
-            input_shape=(dim1[0], dim1[1], dim1[2], dim1[3]), weights=[ker])
-    y = layer(inp)
-    y_ans = K.eval(y)
+    with tf.device('/gpu:1'):
+        layer = tf.keras.layers.Conv2D(dim[3], (dim[0], dim[1]), padding='same', use_bias=False, 
+                input_shape=(dim1[0], dim1[1], dim1[2], dim1[3]), weights=[ker])
+        y = layer(inp)
+        y_ans = K.eval(y)
 
     return y_ans
 
@@ -62,13 +80,12 @@ def NRMSE(x, y):
     denom = y.max() - y.min()
     return numer / denom
 
-def cmp_all(prob_no, ans_no):
-    pwd = os.getcwd()
-    out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
+def cmp_all(prob_no, ans_no, run_cpp_nrmse=False):
+    out_bin = get_out_bin()
+    conv = get_conv_bin(prob_no)
     for i in range(1, 4):
-        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
-        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+        in_bin = get_in_bin(i)
+        ker_bin = get_ker_bin(i)
         
         if sys.argv[1] == '0':
             cmd = '{} {} {}'.format(conv, in_bin, ker_bin)
@@ -81,28 +98,32 @@ def cmp_all(prob_no, ans_no):
         print(cmd)
         os.system(cmd)
 
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
-        # _, ans = read_file(ans_bin)  # Judge with mine
-        ans = shift_ans(in_bin, ker_bin)  # Judge with keras
+        ans_bin = get_ans_bin(ans_no, i)
+        _, ans = read_file(ans_bin)  # Judge with mine
+        # ans = shift_ans(in_bin, ker_bin)  # Judge with keras
         _, oup = read_file(out_bin)
 
         print('AVG: {}'.format(abs(ans).mean()))
         print('DIFF: {}'.format(abs(oup - ans).mean()))
         print('NRMSE: {}'.format(NRMSE(oup, ans)))
+
+        if run_cpp_nrmse:
+            nrmse_cmd = './nrmse {} {}'.format(out_bin, ans_bin)
+            os.system(nrmse_cmd)
+
         print()
 
 SEND = 10
 
 def eval_error(prob_no, mode, answers, vector, vec_idx, vec_val):
-    pwd = os.getcwd()
-    out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
+    out_bin = get_out_bin()
+    conv = get_conv_bin(prob_no)
     errors = []
     vec_org = vector[vec_idx]
     vector[vec_idx] = vec_val
     for i in range(1, 4):
-        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
-        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+        in_bin = get_in_bin(i)
+        ker_bin = get_ker_bin(i)
         cmd = '{} {} {} {} -i {} -k {}'.format(
                 conv, in_bin, ker_bin, mode, vector[0] / SEND, vector[1] / SEND)
         os.system(cmd)
@@ -143,7 +164,7 @@ def avm_search(prob_no, ans_no, mode):
     pwd = os.getcwd()
     answers = {}
     for i in range(1, 4):
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
+        ans_bin = get_ans_bin(ans_no, i)
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
@@ -165,12 +186,11 @@ def avm_search(prob_no, ans_no, mode):
     print(min_vec, min_fit)
 
 def meas_time(prob_no, mode, runs, quan):
-    pwd = os.getcwd()
-    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
+    conv = get_conv_bin(prob_no)
 
     for i in range(1, 4):
-        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
-        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+        in_bin = get_in_bin(i)
+        ker_bin = get_ker_bin(i)
 
         if mode == '0':
             cmd = '{} {} {} -p {}'.format(conv, in_bin, ker_bin, 'c')
@@ -183,13 +203,11 @@ def meas_time(prob_no, mode, runs, quan):
         print()
 
 def meas_error(prob_no, ans_no, mode):
-    pwd = os.getcwd()
-    out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
-
+    out_bin = get_out_bin()
+    conv = get_conv_bin(prob_no)
     for i in range(1, 4):
-        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
-        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+        in_bin = get_in_bin(i)
+        ker_bin = get_ker_bin(i)
 
         if mode == '0':
             cmd = '{} {} {}'.format(conv, in_bin, ker_bin)
@@ -198,7 +216,7 @@ def meas_error(prob_no, ans_no, mode):
                     conv, in_bin, ker_bin, mode)
         os.system(cmd)
 
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
+        ans_bin = get_ans_bin(ans_no, i)
         _, ans = read_file(ans_bin)  # Judge with mine
         _, oup = read_file(out_bin)
         error = NRMSE(oup, ans)
@@ -234,12 +252,11 @@ def cmp_tf_quan(prob_no, ans_no, mode):
     sess = tf.compat.v1.Session(
         target='', graph=None, config=None
     )
-    pwd = os.getcwd()
-    out_bin = '{}/output_tensor.bin'.format(pwd)
-    conv = '{}/probs/prob{}/convolution'.format(pwd, prob_no)
+    out_bin = get_out_bin()
+    conv = get_conv_bin(prob_no)
     for i in range(1, 4):
-        in_bin = '{}/group2/{}/it.bin'.format(pwd, i)
-        ker_bin = '{}/group2/{}/kt.bin'.format(pwd, i)
+        in_bin = get_in_bin(i)
+        ker_bin = get_ker_bin(i)
 
         _, it = read_file(in_bin)
         _, kt = read_file(ker_bin)
@@ -254,7 +271,7 @@ def cmp_tf_quan(prob_no, ans_no, mode):
         print(cmd)
         os.system(cmd)
 
-        ans_bin = '{}/group2/{}/o{}.bin'.format(pwd, i, ans_no)
+        ans_bin = get_ans_bin(ans_no, i)
         _, ans = read_file(ans_bin)
         _, oup = read_file(out_bin)
         print(abs(ans).sum())
@@ -269,7 +286,7 @@ def cmp_tf_quan(prob_no, ans_no, mode):
 
 
 if __name__=="__main__":
-    cmp_all(1, 1)
+    cmp_all(2, 1, True)
         
 
 
