@@ -133,13 +133,11 @@ void doConv2D(
         Tensor<T>& padded_tensor, Tensor<T>& ker_tensor, Tensor<T>& out_tensor)
 {
     clock_t start_c = clock();
-    int32_t acc_min = (int32_t) numeric_limits<T>::min();
-    int32_t acc_max = (int32_t) numeric_limits<T>::max();
     for (int b = 0; b < batch; ++b) {
         for (int i = 0; i < oh; ++i) {
             for (int j = 0; j < ow; ++j) {
                 for (int d = 0; d < od; ++d) {
-                    int32_t acc = 0;
+                    T acc = 0;
                     for (int c = 0; c < ic; ++c) {
                         for (int di = 0; di < kh; ++di) {
                             for (int dj = 0; dj < kw; ++dj) {
@@ -162,7 +160,7 @@ void doConv2D(
                         + i * (ow * od)
                         + j * od
                         + d
-                    ] = max(acc_min, min(acc_max, acc));
+                    ] = acc;
                 }
             }
         }

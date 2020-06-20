@@ -173,7 +173,16 @@ def variable_search(prob_no, mode, answers, ini_vec, vec_idx):
     return [x / SEND for x in vec], fit
 
 def avm_search(prob_no, ans_no, mode):
-    pwd = os.getcwd()
+    def get_initial_vec():
+        if mode == '32' or mode == 'INT32':
+            return [-random.randint(1, 20), random.randint(1e+6, 1e+7)]
+        elif mode == '16' or mode == 'INT16':
+            return [-random.randint(1, 20), random.randint(50, 200)]
+        elif mode == '8':
+            return [-(random.rand() + 0.1), random.randint(10, 100)]
+        else:
+            raise ValueError
+    
     answers = {}
     for i in range(1, 4):
         ans_bin = get_ans_bin(ans_no, i)
@@ -182,8 +191,7 @@ def avm_search(prob_no, ans_no, mode):
     min_fit = 100
     for i in range(10):
         fit = 100
-        vec = [-random.randint(1, 20), random.randint(50, 200)]
-        # vec = [-5.0, 300.7]
+        vec = get_initial_vec()
         for j in range(4):
             vec_idx = (j + 1) % 2
             new_vec, new_fit = variable_search(prob_no, mode, answers, vec, vec_idx)
