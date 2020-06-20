@@ -506,16 +506,16 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
 }
 
 bool initArgs(int argc, char* argv[]) {
-    Arg_print_time = false;
+    Arg_print_time = 0;
     Arg_mode = 0;
     Arg_s_in = 0;
     Arg_s_ker = 0;
     Arg_mem_r = false;
 
     int op_c;
-    while ((op_c = getopt(argc, argv, "pri:k:")) != -1) {
+    while ((op_c = getopt(argc, argv, "p:ri:k:")) != -1) {
         if (op_c == 'p') {
-            Arg_print_time = true;
+            Arg_print_time = *optarg;
         } else if (op_c == 'r') {
             Arg_mem_r = true;
         } else if (op_c == 'i') {

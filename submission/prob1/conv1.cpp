@@ -14,7 +14,7 @@
 using namespace std;
 
 // Global args.
-bool Arg_print_time = false;
+char Arg_print_time = 0;
 int Arg_mode = 0;
 char* Arg_in_fname;
 char* Arg_ker_fname;
@@ -165,7 +165,7 @@ void doConv2D(
             }
         }
     }
-    if (Arg_print_time) {
+    if (Arg_print_time == 'c') {
         cout << (double) (clock() - start_c) / CLOCKS_PER_SEC << endl;
     }
 }
@@ -273,8 +273,12 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
             ih, pad_top,
             iw, pad_left,
             in_tensor);
+
+    clock_t quan_c = 0;
+    clock_t start_c = clock();
     Tensor<T> padded_tensor = getQuantized<T>(s_in, unquan_padded_tensor);
     Tensor<T> quan_ker_tensor = getQuantized<T>(s_ker, ker_tensor);
+    quan_c += clock() - start_c;
 
     Tensor<T> out_tensor;
     out_tensor.dim[0] = batch;
@@ -287,7 +291,13 @@ Tensor<float> quanConv2D(float s_in, float s_ker, Tensor<float>& in_tensor, Tens
             batch, ih, iw, ic, kh, kw, od, oh, ow,
             padded_tensor, quan_ker_tensor, out_tensor);
 
-    return getDequantized(s_in * s_ker, out_tensor);
+    start_c = clock();
+    const Tensor<float>& fin_out_tensor = getDequantized(s_in * s_ker, out_tensor);
+    quan_c += clock() - start_c;
+    if (Arg_print_time == 'q') {
+        cout << (double) quan_c / CLOCKS_PER_SEC << endl;
+    }
+    return fin_out_tensor;
 }
 
 bool initArgs(int argc, char* argv[]) {
@@ -298,9 +308,9 @@ bool initArgs(int argc, char* argv[]) {
     Arg_mem_r = false;
 
     int op_c;
-    while ((op_c = getopt(argc, argv, "pri:k:")) != -1) {
+    while ((op_c = getopt(argc, argv, "p:ri:k:")) != -1) {
         if (op_c == 'p') {
-            Arg_print_time = true;
+            Arg_print_time = *optarg;
         } else if (op_c == 'r') {
             Arg_mem_r = true;
         } else if (op_c == 'i') {

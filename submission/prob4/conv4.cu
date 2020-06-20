@@ -349,7 +349,11 @@ int main(int argc, char* argv[])
         transposeKernel3012(ker_tensor);
     }
 
-    cudaFree(0);
+    cudaError_t cuda_init_status = cudaFree(0);
+    if (cuda_init_status != cudaSuccess) {
+        cout << "CUDA initialization error." << endl;
+        return 0;
+    }
     const char out_fname[] = "output_tensor.bin";
     writeFile(out_fname, conv2D(in_tensor, ker_tensor));
 }
