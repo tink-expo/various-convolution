@@ -62,21 +62,22 @@ def NRMSE(x, y):
     denom = y.max() - y.min()
     return numer / denom
 
-def cmp_all(prob_no, ans_no, r_flag, run_cpp_nrmse=False):
+def cmp_prob(prob_no, ans_no, arg_lst, r_flag, use_keras, run_cpp_nrmse=False):
+    assert(use_keras or not r_flag)
     out_bin = get_out_bin()
     conv = get_conv_bin(prob_no)
     for i in range(1, 4):
         in_bin = get_in_bin(i)
         ker_bin = get_ker_bin(i)
-        
-        if sys.argv[1] == '0':
+
+        if len(arg_lst) == 0:
             cmd = '{} {} {}'.format(conv, in_bin, ker_bin)
-        elif len(sys.argv) > 3:
+        elif len(arg_lst) >= 3:
             cmd = '{} {} {} {} -i {} -k {}'.format(
-                    conv, in_bin, ker_bin, sys.argv[1], sys.argv[2], sys.argv[3])
+                    conv, in_bin, ker_bin, *arg_lst[:3])
         else:
             cmd = '{} {} {} {}'.format(
-                    conv, in_bin, ker_bin, sys.argv[1])
+                    conv, in_bin, ker_bin, arg_lst[0])
 
         if r_flag:
             cmd += ' -r'
@@ -84,11 +85,15 @@ def cmp_all(prob_no, ans_no, r_flag, run_cpp_nrmse=False):
         os.system(cmd)
 
         ans_bin = get_ans_bin(ans_no, i)
-        # _, ans = read_file(ans_bin)  # Judge with mine
-        if r_flag:
-            ans = keras_ans_r(in_bin, ker_bin)  # Judge with keras
+        
+        if use_keras:
+            if r_flag:
+                ans = keras_ans_r(in_bin, ker_bin)
+            else:
+                ans = keras_ans(in_bin, ker_bin)
         else:
-            ans = keras_ans(in_bin, ker_bin)
+            _, ans = read_file(ans_bin)
+
         _, oup = read_file(out_bin)
 
         print('AVG: {}'.format(abs(ans).mean()))
@@ -100,6 +105,24 @@ def cmp_all(prob_no, ans_no, r_flag, run_cpp_nrmse=False):
             os.system(nrmse_cmd)
 
         print()
+
+def cmp_all(r_flag, use_keras, run_cpp_nrmse=False):
+    def cmp_prob_argls(prob_no, ans_no, argls):
+        for argl in argls:
+            cmp_prob(prob_no, ans_no, argl, r_flag, use_keras, run_cpp_nrmse)
+    cmp_prob_argls(1, 1, [
+        []
+    ])
+    cmp_prob_argls(2, 1, [
+        ['32'], ['16'], ['8']
+    ])
+    cmp_prob_argls(3, 3, [
+        ['FP32'], ['INT32'], ['INT16']
+    ])
+    cmp_prob_argls(4, 4, [
+        []
+    ])
+
 
 SEND = 10
 
@@ -205,14 +228,14 @@ def meas_error(prob_no, ans_no, mode):
         os.system(cmd)
 
         ans_bin = get_ans_bin(ans_no, i)
-        _, ans = read_file(ans_bin)  # Judge with mine
+        _, ans = read_file(ans_bin)
         _, oup = read_file(out_bin)
         error = NRMSE(oup, ans)
         print(error, end=' ')
     print()
 
 if __name__=="__main__":
-    cmp_all(4, 4)
+    cmp_all(False, False)
         
 
 
