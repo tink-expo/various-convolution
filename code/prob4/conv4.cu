@@ -184,7 +184,6 @@ __global__ void h_cuda_matmul(float* imcol, float* kernel, float* result,
     }
 }
 
-// TODO: Try batch > 1
 void conv2Dcuda(
         Tensor& padded_tensor, Tensor& ker_tensor, Tensor& out_tensor)
 {

@@ -124,7 +124,6 @@ Tensor<float> getDequantized(float s_val, Tensor<T>& quan_out_tensor)
     return fin_out_tensor;
 }
 
-// TODO: Try change order of loops to see performance reasonable in type order.
 template<typename T>
 void doConv2D(
         int batch, int ih, int iw, int ic, 

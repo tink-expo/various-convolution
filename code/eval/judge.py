@@ -103,7 +103,7 @@ def cmp_prob(prob_no, ans_no, arg_lst, r_flag, use_keras, run_cpp_nrmse=False):
 
         if r_flag:
             cmd += ' -r'
-        cmd += ' -p c'
+        # cmd += ' -p c'
         print(cmd)
         os.system(cmd)
 
