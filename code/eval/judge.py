@@ -14,11 +14,15 @@ def get_out_bin():
 def get_conv_bin(prob_no):
     return '{}/../prob{}/convolution'.format(cwd, prob_no)
 def get_in_bin(i):
-    return '{}/../../group2/{}/it.bin'.format(cwd, i)
+    return '{}/../../group2/{}/input_tensor.bin'.format(cwd, i)
 def get_ker_bin(i):
-    return '{}/../../group2/{}/kt.bin'.format(cwd, i)
+    return '{}/../../group2/{}/kernel_tensor.bin'.format(cwd, i)
+# def get_in_bin(i):
+#     return '{}/../../group1/{}/input_tensor.bin'.format(cwd, i)
+# def get_ker_bin(i):
+#     return '{}/../../group1/{}/kernel_tensor.bin'.format(cwd, i)
 def get_ans_bin(ans_no, i):
-    return '{}/../../group2/{}/o{}.bin'.format(cwd, i, ans_no)
+    return '{}/../../group2o/{}/o{}.bin'.format(cwd, i, ans_no)
 
 def read_file(fname):
     whole = np.fromfile(fname)
@@ -30,6 +34,14 @@ def read_file(fname):
 def read_fsize(fname):
     dim = np.fromfile(fname, dtype=np.int32, count=4)
     print(dim)
+
+def NRMSE(x, y):
+    numer = math.sqrt((np.square(x - y)).mean())
+    denom = y.max() - y.min()
+    return numer / denom
+
+
+## Judge
 
 def keras_ans_r(in_bin, ker_bin):
     dim1, inp = read_file(in_bin)
@@ -57,10 +69,18 @@ def keras_ans(in_bin, ker_bin):
 
     return y_ans
 
-def NRMSE(x, y):
-    numer = math.sqrt((np.square(x - y)).mean())
-    denom = y.max() - y.min()
-    return numer / denom
+def cmp_fname_keras(in_bin, ker_bin, out_bin, r_flag):
+    if r_flag:
+        ans = keras_ans_r(in_bin, ker_bin)
+    else:
+        ans = keras_ans(in_bin, ker_bin)
+
+    _, oup = read_file(out_bin)
+
+    print('AVG: {}'.format(abs(ans).mean()))
+    print('DIFF: {}'.format(abs(oup - ans).mean()))
+    print('NRMSE: {}'.format(NRMSE(oup, ans)))
+
 
 def cmp_prob(prob_no, ans_no, arg_lst, r_flag, use_keras, run_cpp_nrmse=False):
     assert(use_keras or not r_flag)
@@ -69,6 +89,8 @@ def cmp_prob(prob_no, ans_no, arg_lst, r_flag, use_keras, run_cpp_nrmse=False):
     for i in range(1, 4):
         in_bin = get_in_bin(i)
         ker_bin = get_ker_bin(i)
+        read_fsize(in_bin)
+        read_fsize(ker_bin)
 
         if len(arg_lst) == 0:
             cmd = '{} {} {}'.format(conv, in_bin, ker_bin)
@@ -81,7 +103,7 @@ def cmp_prob(prob_no, ans_no, arg_lst, r_flag, use_keras, run_cpp_nrmse=False):
 
         if r_flag:
             cmd += ' -r'
-        # cmd += ' -p c'
+        cmd += ' -p c'
         print(cmd)
         os.system(cmd)
 
@@ -95,7 +117,8 @@ def cmp_prob(prob_no, ans_no, arg_lst, r_flag, use_keras, run_cpp_nrmse=False):
         else:
             _, ans = read_file(ans_bin)
 
-        _, oup = read_file(out_bin)
+        odim, oup = read_file(out_bin)
+        print(odim)
 
         print('AVG: {}'.format(abs(ans).mean()))
         print('DIFF: {}'.format(abs(oup - ans).mean()))
@@ -124,6 +147,8 @@ def cmp_all(r_flag, use_keras, run_cpp_nrmse=False):
         []
     ])
 
+
+## Alternating Variable Method Search
 
 SEND = 10
 
@@ -172,7 +197,7 @@ def variable_search(prob_no, mode, answers, ini_vec, vec_idx):
     vec[vec_idx] = x
     return [x / SEND for x in vec], fit
 
-def avm_search(prob_no, ans_no, mode):
+def avm_search(prob_no, ans_no, mode, tot_it, var_it):
     def get_initial_vec():
         if mode == '32' or mode == 'INT32':
             return [-random.randint(1, 20), random.randint(1e+6, 1e+7)]
@@ -189,10 +214,10 @@ def avm_search(prob_no, ans_no, mode):
         _, answers[i] = read_file(ans_bin)
 
     min_fit = 100
-    for i in range(10):
+    for i in range(tot_it):
         fit = 100
         vec = get_initial_vec()
-        for j in range(4):
+        for j in range(var_it):
             vec_idx = (j + 1) % 2
             new_vec, new_fit = variable_search(prob_no, mode, answers, vec, vec_idx)
             print(new_vec, new_fit)
@@ -205,46 +230,8 @@ def avm_search(prob_no, ans_no, mode):
 
     print(min_vec, min_fit)
 
-def meas_time(prob_no, mode, runs, quan):
-    conv = get_conv_bin(prob_no)
-
-    for i in range(1, 4):
-        in_bin = get_in_bin(i)
-        ker_bin = get_ker_bin(i)
-
-        if mode == '0':
-            cmd = '{} {} {} -p {}'.format(conv, in_bin, ker_bin, 'c')
-        else:
-            cmd = '{} {} {} {} -p {}'.format(
-                    conv, in_bin, ker_bin, mode, 'q' if quan else 'c')
-        print(i)
-        for j in range(runs):
-            os.system(cmd)
-        print()
-
-def meas_error(prob_no, ans_no, mode):
-    out_bin = get_out_bin()
-    conv = get_conv_bin(prob_no)
-    for i in range(1, 4):
-        in_bin = get_in_bin(i)
-        ker_bin = get_ker_bin(i)
-
-        if mode == '0':
-            cmd = '{} {} {}'.format(conv, in_bin, ker_bin)
-        else:
-            cmd = '{} {} {} {}'.format(
-                    conv, in_bin, ker_bin, mode)
-        os.system(cmd)
-
-        ans_bin = get_ans_bin(ans_no, i)
-        _, ans = read_file(ans_bin)
-        _, oup = read_file(out_bin)
-        error = NRMSE(oup, ans)
-        print(error, end=' ')
-    print()
-
 if __name__=="__main__":
-    cmp_all(True, True)
+    pass
         
 
 
