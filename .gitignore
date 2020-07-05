@@ -1,8 +1,4 @@
-**/convolution
-**/nrmse
-**.txt
 *.tar
 __pycache__
 **output_tensor.bin
 **.out
-/group1/
