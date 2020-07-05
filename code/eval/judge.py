@@ -8,6 +8,9 @@ import copy
 import random
 import io
 
+SEND = 10
+DEVICE = '/gpu:1'
+
 cwd = os.getcwd()
 def get_out_bin():
     return '{}/output_tensor.bin'.format(cwd)
@@ -48,7 +51,7 @@ def keras_ans_r(in_bin, ker_bin):
     dim, ker = read_file(ker_bin)
     dim[2], dim[3] = dim[3], dim[2]
     ker = ker.reshape(dim)
-    with tf.device('/gpu:1'):
+    with tf.device(DEVICE):
         layer = tf.keras.layers.Conv2D(dim[3], (dim[0], dim[1]), padding='same', use_bias=False, 
                 input_shape=(dim1[0], dim1[1], dim1[2], dim1[3]), weights=[ker])
         y = layer(inp)
@@ -61,7 +64,7 @@ def keras_ans(in_bin, ker_bin):
     dim, ker = read_file(ker_bin)
     ker = ker.transpose(0, 1, 3, 2)
     dim[2], dim[3] = dim[3], dim[2]
-    with tf.device('/gpu:1'):
+    with tf.device(DEVICE):
         layer = tf.keras.layers.Conv2D(dim[3], (dim[0], dim[1]), padding='same', use_bias=False, 
                 input_shape=(dim1[0], dim1[1], dim1[2], dim1[3]), weights=[ker])
         y = layer(inp)
@@ -150,8 +153,6 @@ def cmp_all(r_flag, use_keras, run_cpp_nrmse=False):
 
 ## Alternating Variable Method Search
 
-SEND = 10
-
 def eval_error(prob_no, mode, answers, vector, vec_idx, vec_val):
     out_bin = get_out_bin()
     conv = get_conv_bin(prob_no)
@@ -232,8 +233,3 @@ def avm_search(prob_no, ans_no, mode, tot_it, var_it):
 
 if __name__=="__main__":
     pass
-        
-
-
-
-
