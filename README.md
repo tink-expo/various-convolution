@@ -11,13 +11,13 @@ Parallelization using CUDA.
 
 ## Programs
 This project consists of several programs listed below. They have some duplicated code which can be shared, but they are intentionally unshared to make each programs completely independent.
-### `conv_vanila`
+### conv_vanila
 Optionally uses naive quantization with scale value found by [AVM search](http://avmframework.org/) on several typical examples of input and kernel tensor files. Convolution operation is done by simple arithmetic calculation. Note that strictly speaking, this 'convolution operation' is actually 'correlation', like many machine learning frameworks' convolution operations.
-### `conv_cpu`
+### conv_cpu
 Like `conv_vanila`, optionally uses naive quantization. Additionally, this program uses multithreading (pthread library), and AVX instructions for optimization.
-### `conv_gpu`
+### conv_gpu
 This program uses CUDA for optimization. Unlike two programs above that uses CPU for demanding operation for convolution, this program first process input and kernel tensor using `im2col`, and performs convolution by matrix multiplication on GPU.
-### `nrmse`
+### nrmse
 This program is for measuring quantization error. It uses normalized root-mean-square error (NRMSE).
 
 ## Usage
