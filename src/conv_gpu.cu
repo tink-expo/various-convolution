@@ -173,14 +173,35 @@ vector<float> getIm2col(
 __global__ void h_cuda_matmul(float* imcol, float* kernel, float* result, 
     int m_size, int n_size, int k_size)
 {
-    int i_idx = blockIdx.y * blockDim.y + threadIdx.y;
-    int j_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i_idx < m_size && j_idx < n_size) {
-        float acc = 0;
-        for (int k = 0; k < k_size; ++k) {
-            acc += imcol[i_idx * k_size + k] * kernel[k * n_size + j_idx];
+    __shared__ float imcol_sh[CUDA_THREADS_2D][CUDA_THREADS_2D];
+    __shared__ float kernel_sh[CUDA_THREADS_2D][CUDA_THREADS_2D];
+
+    int g_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int g_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int t_y = threadIdx.y;
+    int t_x = threadIdx.x;
+
+    float acc = 0;
+    int steps = (k_size + CUDA_THREADS_2D - 1) / CUDA_THREADS_2D;
+    for (int step = 0; step < steps; ++step) {
+        int step_x = step * CUDA_THREADS_2D + t_x;
+        if (g_y < m_size && step_x < k_size) {
+            imcol_sh[t_y][t_x] = imcol[g_y * k_size + step_x];
         }
-        result[i_idx * n_size + j_idx] = acc;
+        int step_y = step * CUDA_THREADS_2D + t_y;
+        if (g_x < n_size && step_y < k_size) {
+            kernel_sh[t_y][t_x] = kernel[step_y * n_size + g_x];
+        }
+        __syncthreads();
+        if (g_y < m_size && g_x < n_size) {
+            for (int t_k = 0; t_k < CUDA_THREADS_2D && step * CUDA_THREADS_2D + t_k < k_size; ++t_k) {
+                acc += imcol_sh[t_y][t_k] * kernel_sh[t_k][t_x];
+            }
+        }
+        __syncthreads();
+    }
+    if (g_y < m_size && g_x < n_size) {
+        result[g_y * n_size + g_x] = acc;
     }
 }
 
